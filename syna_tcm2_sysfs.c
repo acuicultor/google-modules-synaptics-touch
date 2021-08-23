@@ -159,7 +159,11 @@ struct fifo_queue {
 	struct list_head next;
 	unsigned char *fifo_data;
 	unsigned int data_length;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0))
+	struct timespec64 timestamp;
+#else
 	struct timeval timestamp;
+#endif
 };
 
 
@@ -664,7 +668,11 @@ static int syna_cdev_insert_fifo(struct syna_tcm *tcm,
 	pfifo_data->data_length = length;
 
 	memcpy((void *)pfifo_data->fifo_data, (void *)buf_ptr, length);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0))
+	ktime_get_real_ts64(&(pfifo_data->timestamp));
+#else
 	do_gettimeofday(&(pfifo_data->timestamp));
+#endif
 	/* append the data to the tail for FIFO queueing */
 	list_add_tail(&pfifo_data->next, &tcm->frame_fifo_queue);
 	tcm->fifo_remaining_frame++;
@@ -1586,7 +1594,8 @@ static int syna_cdev_ioctl_old_dispatch(struct syna_tcm *tcm,
  * @return
  *    on success, 0; otherwise, negative value on error.
  */
-#ifdef HAVE_UNLOCKED_IOCTL
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)) || \
+	defined (HAVE_UNLOCKED_IOCTL)
 static long syna_cdev_ioctls(struct file *filp, unsigned int cmd,
 		unsigned long arg)
 #else
@@ -1935,7 +1944,8 @@ static int syna_cdev_release(struct inode *inp, struct file *filp)
  */
 static const struct file_operations device_fops = {
 	.owner = THIS_MODULE,
-#ifdef HAVE_UNLOCKED_IOCTL
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)) || \
+	defined (HAVE_UNLOCKED_IOCTL)
 	.unlocked_ioctl = syna_cdev_ioctls,
 #if defined(CONFIG_COMPAT) && defined(HAVE_COMPAT_IOCTL)
 	.compat_ioctl = syna_cdev_compat_ioctls,
