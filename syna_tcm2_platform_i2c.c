@@ -120,7 +120,7 @@ static int syna_i2c_request_gpio(int gpio, bool config, int dir,
 #endif
 
 	if (config) {
-		retval = snprintf(label, 16, "tcm_gpio_%d\n", gpio);
+		retval = scnprintf(label, 16, "tcm_gpio_%d\n", gpio);
 		if (retval < 0) {
 			LOGE("Fail to set GPIO label\n");
 			return retval;

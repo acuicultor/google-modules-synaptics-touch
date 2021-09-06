@@ -303,7 +303,7 @@ static ssize_t syna_testing_check_id_show(struct kobject *kobj,
 	struct syna_tcm *tcm = g_tcm_ptr;
 
 	if (!tcm->is_connected) {
-		retval = snprintf(buf, PAGE_SIZE,
+		retval = scnprintf(buf, PAGE_SIZE,
 				"Device is NOT connected\n");
 		goto exit;
 	}
@@ -312,7 +312,7 @@ static ssize_t syna_testing_check_id_show(struct kobject *kobj,
 
 	retval = syna_testing_device_id(tcm);
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 			"Device ID check: %s\n",
 			(retval < 0) ? "fail" : "pass");
 
@@ -321,7 +321,7 @@ static ssize_t syna_testing_check_id_show(struct kobject *kobj,
 
 	retval = syna_testing_config_id(tcm);
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 			"Config ID check: %s\n",
 			(retval < 0) ? "fail" : "pass");
 
@@ -347,34 +347,29 @@ static struct kobj_attribute kobj_attr_check_id =
  * @return
  *    on success, 0; otherwise, negative value on error.
  */
-static int syna_testing_pt01(struct syna_tcm *tcm)
+static int syna_testing_pt01(struct syna_tcm *tcm, struct tcm_buffer *test_data)
 {
 	int retval;
 	bool result = false;
-	struct tcm_buffer test_data;
-
-	syna_tcm_buf_init(&test_data);
 
 	LOGI("Start testing\n");
 
 	retval = syna_tcm_run_production_test(tcm->tcm_dev,
 			TEST_PID01_TRX_TRX_SHORTS,
-			&test_data);
+			test_data);
 	if (retval < 0) {
 		LOGE("Fail to run test %d\n", TEST_PID01_TRX_TRX_SHORTS);
 		result = false;
 		goto exit;
 	}
 
-	result = syna_testing_compare_byte_vector(test_data.buf,
-			test_data.data_length,
+	result = syna_testing_compare_byte_vector(test_data->buf,
+			test_data->data_length,
 			pt01_limits,
 			ARRAY_SIZE(pt01_limits));
 
 exit:
 	LOGI("Result = %s\n", (result)?"pass":"fail");
-
-	syna_tcm_buf_release(&test_data);
 
 	return ((result) ? 0 : -1);
 }
@@ -396,21 +391,31 @@ exit:
 static ssize_t syna_testing_pt01_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	int retval;
+	int retval, i;
 	unsigned int count = 0;
 	struct syna_tcm *tcm = g_tcm_ptr;
+	struct tcm_buffer test_data;
 
 	if (!tcm->is_connected) {
-		count = snprintf(buf, PAGE_SIZE,
+		count = scnprintf(buf, PAGE_SIZE,
 				"Device is NOT connected\n");
 		goto exit;
 	}
 
-	retval = syna_testing_pt01(tcm);
+	syna_tcm_buf_init(&test_data);
 
-	count = snprintf(buf, PAGE_SIZE,
-			"TEST PT$01: %s\n",
-			(retval < 0) ? "fail" : "pass");
+	retval = syna_testing_pt01(tcm, &test_data);
+
+	count += scnprintf(buf, PAGE_SIZE,
+			"TEST PT$01: %s\n", (retval < 0) ? "fail" : "pass");
+
+	for (i = 0; i < test_data.data_length; i++) {
+		count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+				test_data.buf[i]);
+	}
+	count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+
+	syna_tcm_buf_release(&test_data);
 
 exit:
 	return count;
@@ -430,27 +435,24 @@ static struct kobj_attribute kobj_attr_pt01 =
  * @return
  *    on success, 0; otherwise, negative value on error.
  */
-static int syna_testing_pt05(struct syna_tcm *tcm)
+static int syna_testing_pt05(struct syna_tcm *tcm, struct tcm_buffer *test_data)
 {
 	int retval;
 	bool result = false;
-	struct tcm_buffer test_data;
-
-	syna_tcm_buf_init(&test_data);
 
 	LOGI("Start testing\n");
 
 	retval = syna_tcm_run_production_test(tcm->tcm_dev,
 			TEST_PID05_FULL_RAW_CAP,
-			&test_data);
+			test_data);
 	if (retval < 0) {
 		LOGE("Fail to run test %d\n", TEST_PID05_FULL_RAW_CAP);
 		result = false;
 		goto exit;
 	}
 
-	result = syna_testing_compare_frame(test_data.buf,
-			test_data.data_length,
+	result = syna_testing_compare_frame(test_data->buf,
+			test_data->data_length,
 			tcm->tcm_dev->rows,
 			tcm->tcm_dev->cols,
 			(const short *)&pt05_hi_limits[0],
@@ -458,8 +460,6 @@ static int syna_testing_pt05(struct syna_tcm *tcm)
 
 exit:
 	LOGI("Result = %s\n", (result)?"pass":"fail");
-
-	syna_tcm_buf_release(&test_data);
 
 	return ((result) ? 0 : -1);
 }
@@ -481,20 +481,38 @@ exit:
 static ssize_t syna_testing_pt05_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	int retval;
+	int retval, i, j;
+	short *data_ptr = NULL;
 	unsigned int count = 0;
 	struct syna_tcm *tcm = g_tcm_ptr;
+	struct tcm_buffer test_data;
 
 	if (!tcm->is_connected) {
-		count = snprintf(buf, PAGE_SIZE,
+		count = scnprintf(buf, PAGE_SIZE,
 				"Device is NOT connected\n");
 		goto exit;
 	}
 
-	retval = syna_testing_pt05(tcm);
+	syna_tcm_buf_init(&test_data);
 
-	count = snprintf(buf, PAGE_SIZE,
+	retval = syna_testing_pt05(tcm, &test_data);
+
+	count += scnprintf(buf, PAGE_SIZE,
 			"TEST PT$05: %s\n", (retval < 0) ? "fail" : "pass");
+
+	count += scnprintf(buf + count, PAGE_SIZE - count, "%d %d\n",
+			tcm->tcm_dev->cols, tcm->tcm_dev->rows);
+
+	data_ptr = (short *)&(test_data.buf[0]);
+	for (i = 0; i < tcm->tcm_dev->rows; i++) {
+		for (j = 0; j < tcm->tcm_dev->cols; j++) {
+			count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+					data_ptr[i * tcm->tcm_dev->cols + j]);
+		}
+		count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+	}
+
+	syna_tcm_buf_release(&test_data);
 
 exit:
 	return count;
@@ -514,27 +532,24 @@ static struct kobj_attribute kobj_attr_pt05 =
  * @return
  *    on success, 0; otherwise, negative value on error.
  */
-static int syna_testing_pt0a(struct syna_tcm *tcm)
+static int syna_testing_pt0a(struct syna_tcm *tcm, struct tcm_buffer *test_data)
 {
 	int retval;
 	bool result = false;
-	struct tcm_buffer test_data;
-
-	syna_tcm_buf_init(&test_data);
 
 	LOGI("Start testing\n");
 
 	retval = syna_tcm_run_production_test(tcm->tcm_dev,
 			TEST_PID10_DELTA_NOISE,
-			&test_data);
+			test_data);
 	if (retval < 0) {
 		LOGE("Fail to run test %d\n", TEST_PID10_DELTA_NOISE);
 		result = false;
 		goto exit;
 	}
 
-	result = syna_testing_compare_frame(test_data.buf,
-			test_data.data_length,
+	result = syna_testing_compare_frame(test_data->buf,
+			test_data->data_length,
 			tcm->tcm_dev->rows,
 			tcm->tcm_dev->cols,
 			(const short *)&pt0a_hi_limits[0],
@@ -542,8 +557,6 @@ static int syna_testing_pt0a(struct syna_tcm *tcm)
 
 exit:
 	LOGI("Result = %s\n", (result)?"pass":"fail");
-
-	syna_tcm_buf_release(&test_data);
 
 	return ((result) ? 0 : -1);
 }
@@ -565,20 +578,38 @@ exit:
 static ssize_t syna_testing_pt0a_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	int retval;
+	int retval, i, j;
+	short *data_ptr = NULL;
 	unsigned int count = 0;
 	struct syna_tcm *tcm = g_tcm_ptr;
+	struct tcm_buffer test_data;
 
 	if (!tcm->is_connected) {
-		count = snprintf(buf, PAGE_SIZE,
+		count = scnprintf(buf, PAGE_SIZE,
 				"Device is NOT connected\n");
 		goto exit;
 	}
 
-	retval = syna_testing_pt0a(tcm);
+	syna_tcm_buf_init(&test_data);
 
-	count = snprintf(buf, PAGE_SIZE,
+	retval = syna_testing_pt0a(tcm, &test_data);
+
+	count += scnprintf(buf, PAGE_SIZE,
 			"TEST PT$0A: %s\n", (retval < 0) ? "fail" : "pass");
+
+	count += scnprintf(buf + count, PAGE_SIZE - count, "%d %d\n",
+			tcm->tcm_dev->cols, tcm->tcm_dev->rows);
+
+	data_ptr = (short *)&(test_data.buf[0]);
+	for (i = 0; i < tcm->tcm_dev->rows; i++) {
+		for (j = 0; j < tcm->tcm_dev->cols; j++) {
+			count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+					data_ptr[i * tcm->tcm_dev->cols + j]);
+		}
+		count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+	}
+
+	syna_tcm_buf_release(&test_data);
 
 exit:
 	return count;
@@ -598,27 +629,24 @@ static struct kobj_attribute kobj_attr_pt0a =
  * @return
  *    on success, 0; otherwise, negative value on error.
  */
-static int syna_testing_pt10(struct syna_tcm *tcm)
+static int syna_testing_pt10(struct syna_tcm *tcm, struct tcm_buffer *test_data)
 {
 	int retval;
 	bool result = false;
-	struct tcm_buffer test_data;
-
-	syna_tcm_buf_init(&test_data);
 
 	LOGI("Start testing\n");
 
 	retval = syna_tcm_run_production_test(tcm->tcm_dev,
 			TEST_PID16_SENSOR_SPEED,
-			&test_data);
+			test_data);
 	if (retval < 0) {
 		LOGE("Fail to run test %d\n", TEST_PID16_SENSOR_SPEED);
 		result = false;
 		goto exit;
 	}
 
-	result = syna_testing_compare_frame(test_data.buf,
-			test_data.data_length,
+	result = syna_testing_compare_frame(test_data->buf,
+			test_data->data_length,
 			tcm->tcm_dev->rows,
 			tcm->tcm_dev->cols,
 			(const short *)&pt10_hi_limits[0],
@@ -626,8 +654,6 @@ static int syna_testing_pt10(struct syna_tcm *tcm)
 
 exit:
 	LOGI("Result = %s\n", (result)?"pass":"fail");
-
-	syna_tcm_buf_release(&test_data);
 
 	return ((result) ? 0 : -1);
 }
@@ -649,20 +675,38 @@ exit:
 static ssize_t syna_testing_pt10_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	int retval;
+	int retval, i, j;
+	short *data_ptr = NULL;
 	unsigned int count = 0;
 	struct syna_tcm *tcm = g_tcm_ptr;
+	struct tcm_buffer test_data;
 
 	if (!tcm->is_connected) {
-		count = snprintf(buf, PAGE_SIZE,
+		count = scnprintf(buf, PAGE_SIZE,
 				"Device is NOT connected\n");
 		goto exit;
 	}
 
-	retval = syna_testing_pt10(tcm);
+	syna_tcm_buf_init(&test_data);
 
-	count = snprintf(buf, PAGE_SIZE,
+	retval = syna_testing_pt10(tcm, &test_data);
+
+	count += scnprintf(buf, PAGE_SIZE,
 			"TEST PT$10: %s\n", (retval < 0) ? "fail" : "pass");
+
+	count += scnprintf(buf + count, PAGE_SIZE - count, "%d %d\n",
+			tcm->tcm_dev->cols, tcm->tcm_dev->rows);
+
+	data_ptr = (short *)&(test_data.buf[0]);
+	for (i = 0; i < tcm->tcm_dev->rows; i++) {
+		for (j = 0; j < tcm->tcm_dev->cols; j++) {
+			count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+					data_ptr[i * tcm->tcm_dev->cols + j]);
+		}
+		count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+	}
+
+	syna_tcm_buf_release(&test_data);
 
 exit:
 	return count;
@@ -682,27 +726,24 @@ static struct kobj_attribute kobj_attr_pt10 =
  * @return
  *    on success, 0; otherwise, negative value on error.
  */
-static int syna_testing_pt11(struct syna_tcm *tcm)
+static int syna_testing_pt11(struct syna_tcm *tcm, struct tcm_buffer *test_data)
 {
 	int retval;
 	bool result = false;
-	struct tcm_buffer test_data;
-
-	syna_tcm_buf_init(&test_data);
 
 	LOGI("Start testing\n");
 
 	retval = syna_tcm_run_production_test(tcm->tcm_dev,
 			TEST_PID17_ADC_RANGE,
-			&test_data);
+			test_data);
 	if (retval < 0) {
 		LOGE("Fail to run test %d\n", TEST_PID17_ADC_RANGE);
 		result = false;
 		goto exit;
 	}
 
-	result = syna_testing_compare_frame(test_data.buf,
-			test_data.data_length,
+	result = syna_testing_compare_frame(test_data->buf,
+			test_data->data_length,
 			tcm->tcm_dev->rows,
 			tcm->tcm_dev->cols,
 			(const short *)&pt11_hi_limits[0],
@@ -710,8 +751,6 @@ static int syna_testing_pt11(struct syna_tcm *tcm)
 
 exit:
 	LOGI("Result = %s\n", (result)?"pass":"fail");
-
-	syna_tcm_buf_release(&test_data);
 
 	return ((result) ? 0 : -1);
 }
@@ -733,20 +772,38 @@ exit:
 static ssize_t syna_testing_pt11_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	int retval;
+	int retval, i, j;
+	short *data_ptr = NULL;
 	unsigned int count = 0;
 	struct syna_tcm *tcm = g_tcm_ptr;
+	struct tcm_buffer test_data;
 
 	if (!tcm->is_connected) {
-		count = snprintf(buf, PAGE_SIZE,
+		count = scnprintf(buf, PAGE_SIZE,
 				"Device is NOT connected\n");
 		goto exit;
 	}
 
-	retval = syna_testing_pt11(tcm);
+	syna_tcm_buf_init(&test_data);
 
-	count = snprintf(buf, PAGE_SIZE,
+	retval = syna_testing_pt11(tcm, &test_data);
+
+	count += scnprintf(buf, PAGE_SIZE,
 			"TEST PT$11: %s\n", (retval < 0) ? "fail" : "pass");
+
+	count += scnprintf(buf + count, PAGE_SIZE - count, "%d %d\n",
+			tcm->tcm_dev->cols, tcm->tcm_dev->rows);
+
+	data_ptr = (short *)&(test_data.buf[0]);
+	for (i = 0; i < tcm->tcm_dev->rows; i++) {
+		for (j = 0; j < tcm->tcm_dev->cols; j++) {
+			count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+					data_ptr[i * tcm->tcm_dev->cols + j]);
+		}
+		count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+	}
+
+	syna_tcm_buf_release(&test_data);
 
 exit:
 	return count;

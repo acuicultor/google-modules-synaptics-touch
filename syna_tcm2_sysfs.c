@@ -202,12 +202,12 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 	count = 0;
 
 	if (!tcm->is_connected) {
-		retval = snprintf(buf, PAGE_SIZE - count,
+		retval = scnprintf(buf, PAGE_SIZE - count,
 				"Device is NOT connected\n");
 		goto exit;
 	}
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 			"Driver version:     %d.%s\n",
 			SYNAPTICS_TCM_DRIVER_VERSION,
 			SYNAPTICS_TCM_DRIVER_SUBVER);
@@ -217,7 +217,7 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 	buf += retval;
 	count += retval;
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 			"Core lib version:   %d.%02d\n\n",
 			(unsigned char)(SYNA_TCM_CORE_LIB_VERSION >> 8),
 			(unsigned char)SYNA_TCM_CORE_LIB_VERSION);
@@ -227,7 +227,7 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 	buf += retval;
 	count += retval;
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 			"TouchComm version:  %d\n", tcm_dev->id_info.version);
 	if (retval < 0)
 		goto exit;
@@ -237,28 +237,28 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 
 	switch (tcm_dev->id_info.mode) {
 	case MODE_APPLICATION_FIRMWARE:
-		retval = snprintf(buf, PAGE_SIZE - count,
+		retval = scnprintf(buf, PAGE_SIZE - count,
 				"Firmware mode:      Application Firmware, 0x%02x\n",
 				tcm_dev->id_info.mode);
 		if (retval < 0)
 			goto exit;
 		break;
 	case MODE_BOOTLOADER:
-		retval = snprintf(buf, PAGE_SIZE - count,
+		retval = scnprintf(buf, PAGE_SIZE - count,
 				"Firmware mode:      Bootloader, 0x%02x\n",
 				tcm_dev->id_info.mode);
 		if (retval < 0)
 			goto exit;
 		break;
 	case MODE_ROMBOOTLOADER:
-		retval = snprintf(buf, PAGE_SIZE - count,
+		retval = scnprintf(buf, PAGE_SIZE - count,
 				"Firmware mode:      Rom Bootloader, 0x%02x\n",
 				tcm_dev->id_info.mode);
 		if (retval < 0)
 			goto exit;
 		break;
 	default:
-		retval = snprintf(buf, PAGE_SIZE - count,
+		retval = scnprintf(buf, PAGE_SIZE - count,
 				"Firmware mode:      Mode 0x%02x\n",
 				tcm_dev->id_info.mode);
 		if (retval < 0)
@@ -268,7 +268,7 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 	buf += retval;
 	count += retval;
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 			"Part number:        ");
 	if (retval < 0)
 		goto exit;
@@ -288,14 +288,14 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 	buf += sizeof(tcm_dev->id_info.part_number);
 	count += sizeof(tcm_dev->id_info.part_number);
 
-	retval = snprintf(buf, PAGE_SIZE - count, "\n");
+	retval = scnprintf(buf, PAGE_SIZE - count, "\n");
 	if (retval < 0)
 		goto exit;
 
 	buf += retval;
 	count += retval;
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 			"Packrat number:     %d\n\n", tcm_dev->packrat_number);
 	if (retval < 0)
 		goto exit;
@@ -308,7 +308,7 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 		goto exit;
 	}
 
-	retval = snprintf(buf, PAGE_SIZE - count, "Config ID:          ");
+	retval = scnprintf(buf, PAGE_SIZE - count, "Config ID:          ");
 	if (retval < 0)
 		goto exit;
 
@@ -316,7 +316,7 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 	count += retval;
 
 	for (i = 0; i < MAX_SIZE_CONFIG_ID; i++) {
-		retval = snprintf(buf, PAGE_SIZE - count,
+		retval = scnprintf(buf, PAGE_SIZE - count,
 			"0x%2x ", tcm_dev->config_id[i]);
 		if (retval < 0)
 			goto exit;
@@ -324,14 +324,14 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 		count += retval;
 	}
 
-	retval = snprintf(buf, PAGE_SIZE - count, "\n");
+	retval = scnprintf(buf, PAGE_SIZE - count, "\n");
 	if (retval < 0)
 		goto exit;
 
 	buf += retval;
 	count += retval;
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 		"Max X & Y:          %d, %d\n", tcm_dev->max_x, tcm_dev->max_y);
 	if (retval < 0)
 		goto exit;
@@ -339,7 +339,7 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 	buf += retval;
 	count += retval;
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 		"Num of objects:     %d\n", tcm_dev->max_objects);
 	if (retval < 0)
 		goto exit;
@@ -347,7 +347,7 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 	buf += retval;
 	count += retval;
 
-	retval = snprintf(buf, PAGE_SIZE - count,
+	retval = scnprintf(buf, PAGE_SIZE - count,
 		"Num of cols & rows: %d, %d\n", tcm_dev->cols, tcm_dev->rows);
 	if (retval < 0)
 		goto exit;
