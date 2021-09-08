@@ -587,6 +587,174 @@ exit:
 static struct kobj_attribute kobj_attr_pt0a =
 	__ATTR(pt0a, 0444, syna_testing_pt0a_show, NULL);
 
+/**
+ * syna_testing_pt10()
+ *
+ * Sample code to perform PT10 testing
+ *
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static int syna_testing_pt10(struct syna_tcm *tcm)
+{
+	int retval;
+	bool result = false;
+	struct tcm_buffer test_data;
+
+	syna_tcm_buf_init(&test_data);
+
+	LOGI("Start testing\n");
+
+	retval = syna_tcm_run_production_test(tcm->tcm_dev,
+			TEST_PID16_SENSOR_SPEED,
+			&test_data);
+	if (retval < 0) {
+		LOGE("Fail to run test %d\n", TEST_PID16_SENSOR_SPEED);
+		result = false;
+		goto exit;
+	}
+
+	result = syna_testing_compare_frame(test_data.buf,
+			test_data.data_length,
+			tcm->tcm_dev->rows,
+			tcm->tcm_dev->cols,
+			(const short *)&pt10_hi_limits[0],
+			(const short *)&pt10_lo_limits[0]);
+
+exit:
+	LOGI("Result = %s\n", (result)?"pass":"fail");
+
+	syna_tcm_buf_release(&test_data);
+
+	return ((result) ? 0 : -1);
+}
+
+/**
+ * syna_testing_pt10_show()
+ *
+ * Attribute to show the result of PT10 test to the console.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [out] buf:  string buffer shown on console
+ *
+ * @return
+ *    on success, number of characters being output;
+ *    otherwise, negative value on error.
+ */
+static ssize_t syna_testing_pt10_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	int retval;
+	unsigned int count = 0;
+	struct syna_tcm *tcm = g_tcm_ptr;
+
+	if (!tcm->is_connected) {
+		count = snprintf(buf, PAGE_SIZE,
+				"Device is NOT connected\n");
+		goto exit;
+	}
+
+	retval = syna_testing_pt10(tcm);
+
+	count = snprintf(buf, PAGE_SIZE,
+			"TEST PT$10: %s\n", (retval < 0) ? "fail" : "pass");
+
+exit:
+	return count;
+}
+
+static struct kobj_attribute kobj_attr_pt10 =
+	__ATTR(pt10, 0444, syna_testing_pt10_show, NULL);
+
+/**
+ * syna_testing_pt11()
+ *
+ * Sample code to perform PT11 testing
+ *
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static int syna_testing_pt11(struct syna_tcm *tcm)
+{
+	int retval;
+	bool result = false;
+	struct tcm_buffer test_data;
+
+	syna_tcm_buf_init(&test_data);
+
+	LOGI("Start testing\n");
+
+	retval = syna_tcm_run_production_test(tcm->tcm_dev,
+			TEST_PID17_ADC_RANGE,
+			&test_data);
+	if (retval < 0) {
+		LOGE("Fail to run test %d\n", TEST_PID17_ADC_RANGE);
+		result = false;
+		goto exit;
+	}
+
+	result = syna_testing_compare_frame(test_data.buf,
+			test_data.data_length,
+			tcm->tcm_dev->rows,
+			tcm->tcm_dev->cols,
+			(const short *)&pt11_hi_limits[0],
+			(const short *)&pt11_lo_limits[0]);
+
+exit:
+	LOGI("Result = %s\n", (result)?"pass":"fail");
+
+	syna_tcm_buf_release(&test_data);
+
+	return ((result) ? 0 : -1);
+}
+
+/**
+ * syna_testing_pt11_show()
+ *
+ * Attribute to show the result of PT11 test to the console.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [out] buf:  string buffer shown on console
+ *
+ * @return
+ *    on success, number of characters being output;
+ *    otherwise, negative value on error.
+ */
+static ssize_t syna_testing_pt11_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	int retval;
+	unsigned int count = 0;
+	struct syna_tcm *tcm = g_tcm_ptr;
+
+	if (!tcm->is_connected) {
+		count = snprintf(buf, PAGE_SIZE,
+				"Device is NOT connected\n");
+		goto exit;
+	}
+
+	retval = syna_testing_pt11(tcm);
+
+	count = snprintf(buf, PAGE_SIZE,
+			"TEST PT$11: %s\n", (retval < 0) ? "fail" : "pass");
+
+exit:
+	return count;
+}
+
+static struct kobj_attribute kobj_attr_pt11 =
+	__ATTR(pt11, 0444, syna_testing_pt11_show, NULL);
+
 /*
  * declaration of sysfs attributes
  */
@@ -595,6 +763,8 @@ static struct attribute *attrs[] = {
 	&kobj_attr_pt01.attr,
 	&kobj_attr_pt05.attr,
 	&kobj_attr_pt0a.attr,
+	&kobj_attr_pt10.attr,
+	&kobj_attr_pt11.attr,
 	NULL,
 };
 
