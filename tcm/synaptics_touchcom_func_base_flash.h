@@ -158,11 +158,11 @@ struct area_descriptor {
  *           in firmware file
  */
 struct block_data {
-	bool available;
 	const unsigned char *data;
 	unsigned int size;
 	unsigned int flash_addr;
 	unsigned char id;
+	bool available;
 };
 /**
  * @section: Structure for the Parsed Image File

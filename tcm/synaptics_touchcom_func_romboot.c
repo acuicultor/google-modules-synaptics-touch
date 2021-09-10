@@ -1171,7 +1171,7 @@ int syna_tcm_romboot_do_ihex_update(struct tcm_dev *tcm_dev,
 		unsigned int delay_ms, bool is_multichip)
 {
 	int retval;
-	struct tcm_romboot_data_blob romboot_data;
+	struct tcm_romboot_data_blob *romboot_data = NULL;
 	struct ihex_info *ihex_info = NULL;
 	struct block_data *block;
 	unsigned int erase_delay_ms = (delay_ms >> 16) & 0xFFFF;
@@ -1189,27 +1189,33 @@ int syna_tcm_romboot_do_ihex_update(struct tcm_dev *tcm_dev,
 		return _EINVAL;
 	}
 
+	romboot_data = syna_pal_mem_alloc(1, sizeof(*romboot_data));
+	if (!romboot_data) {
+		LOGE("Fail to allocate buffer for romboot_data\n");
+		return _ENOMEM;
+	}
+
 	if (flash_size == 0)
 		flash_size = ihex_size + 4096;
 
-	romboot_data.bdata = ihex;
-	romboot_data.bdata_size = ihex_size;
-	syna_pal_mem_set(&romboot_data.ihex_info, 0x00,
+	romboot_data->bdata = ihex;
+	romboot_data->bdata_size = ihex_size;
+	syna_pal_mem_set(&romboot_data->ihex_info, 0x00,
 		sizeof(struct ihex_info));
 
-	ihex_info = &romboot_data.ihex_info;
+	ihex_info = &romboot_data->ihex_info;
 
 	ihex_info->bin = syna_pal_mem_alloc(flash_size,
 			sizeof(unsigned char));
 	if (!ihex_info->bin) {
 		LOGE("Fail to allocate buffer for ihex data\n");
-
+		syna_pal_mem_free((void *)romboot_data);
 		return _ENOMEM;
 	}
 
 	ihex_info->bin_size = flash_size;
 
-	syna_tcm_buf_init(&romboot_data.out);
+	syna_tcm_buf_init(&romboot_data->out);
 
 	LOGN("Parse ihex file\n");
 
@@ -1231,7 +1237,7 @@ int syna_tcm_romboot_do_ihex_update(struct tcm_dev *tcm_dev,
 
 	/* set up flash access, and enter the bootloader mode */
 	retval = syna_tcm_romboot_preparation(tcm_dev,
-			&romboot_data,
+			romboot_data,
 			is_multichip);
 	if (retval < 0) {
 		LOGE("Fail to do preparation\n");
@@ -1259,7 +1265,7 @@ int syna_tcm_romboot_do_ihex_update(struct tcm_dev *tcm_dev,
 			break;
 
 		retval = syna_tcm_romboot_erase_flash(tcm_dev,
-				&romboot_data,
+				romboot_data,
 				block,
 				erase_delay_ms,
 				is_multichip);
@@ -1286,7 +1292,7 @@ int syna_tcm_romboot_do_ihex_update(struct tcm_dev *tcm_dev,
 			continue;
 
 		retval = syna_tcm_romboot_write_flash(tcm_dev,
-				&romboot_data,
+				romboot_data,
 				block,
 				wr_delay_ms,
 				is_multichip);
@@ -1315,7 +1321,9 @@ exit:
 
 	ATOMIC_SET(tcm_dev->firmware_flashing, 0);
 
-	syna_tcm_buf_release(&romboot_data.out);
+	syna_tcm_buf_release(&romboot_data->out);
+
+	syna_pal_mem_free((void *)romboot_data);
 
 	return retval;
 }
@@ -1346,7 +1354,7 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 {
 	int retval;
 	int idx;
-	struct tcm_romboot_data_blob romboot_data;
+	struct tcm_romboot_data_blob *romboot_data = NULL;
 	struct block_data *block;
 	struct app_config_header *header;
 	unsigned int image_fw_id;
@@ -1366,24 +1374,30 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 
 	LOGN("Prepare to do reflash\n");
 
-	syna_pal_mem_set(&romboot_data, 0x00,
+	romboot_data = syna_pal_mem_alloc(1, sizeof(*romboot_data));
+	if (!romboot_data) {
+		LOGE("Fail to allocate buffer for romboot_data\n");
+		return _ENOMEM;
+	}
+
+	syna_pal_mem_set(romboot_data, 0x00,
 		sizeof(struct tcm_romboot_data_blob));
 
-	syna_tcm_buf_init(&romboot_data.out);
+	syna_tcm_buf_init(&romboot_data->out);
 
-	romboot_data.bdata = image;
-	romboot_data.bdata_size = image_size;
+	romboot_data->bdata = image;
+	romboot_data->bdata_size = image_size;
 
-	syna_tcm_buf_init(&romboot_data.out);
+	syna_tcm_buf_init(&romboot_data->out);
 
-	retval = syna_tcm_parse_fw_image(image, &romboot_data.image_info);
+	retval = syna_tcm_parse_fw_image(image, &romboot_data->image_info);
 	if (retval < 0) {
 		LOGE("Fail to parse firmware image\n");
 		retval = _EINVAL;
 		goto exit;
 	}
 
-	block = &romboot_data.image_info.data[AREA_APP_CONFIG];
+	block = &romboot_data->image_info.data[AREA_APP_CONFIG];
 	if (block->size < sizeof(struct app_config_header)) {
 		LOGE("Invalid application config in image file\n");
 		retval = _EINVAL;
@@ -1402,11 +1416,11 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 		goto exit;
 	}
 
-	block = &romboot_data.image_info.data[AREA_TOOL_BOOT_CONFIG];
+	block = &romboot_data->image_info.data[AREA_TOOL_BOOT_CONFIG];
 	has_tool_boot_cfg = block->available;
 
 	/* set up flash access, and enter the bootloader mode */
-	retval = syna_tcm_romboot_preparation(tcm_dev, &romboot_data, true);
+	retval = syna_tcm_romboot_preparation(tcm_dev, romboot_data, true);
 	if (retval < 0) {
 		LOGE("Fail to do preparation\n");
 		goto reset;
@@ -1428,7 +1442,7 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 	 */
 	for (idx = 0; idx < AREA_MAX; idx++) {
 
-		block = &romboot_data.image_info.data[idx];
+		block = &romboot_data->image_info.data[idx];
 
 		if (!block->available)
 			continue;
@@ -1450,7 +1464,7 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 			erase_delay_ms = ROMBOOT_DELAY_MS;
 
 		retval = syna_tcm_romboot_erase_flash(tcm_dev,
-				&romboot_data,
+				romboot_data,
 				block,
 				erase_delay_ms,
 				true);
@@ -1469,7 +1483,7 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 
 		LOGD("Prepare to update %s partition\n", AREA_ID_STR(idx));
 
-		block = &romboot_data.image_info.data[idx];
+		block = &romboot_data->image_info.data[idx];
 
 		if (!block->available)
 			continue;
@@ -1491,7 +1505,7 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 			wr_delay_ms = ROMBOOT_DELAY_MS;
 
 		retval = syna_tcm_romboot_write_flash(tcm_dev,
-				&romboot_data,
+				romboot_data,
 				block,
 				wr_delay_ms,
 				true);
@@ -1518,7 +1532,9 @@ reset:
 exit:
 	ATOMIC_SET(tcm_dev->firmware_flashing, 0);
 
-	syna_tcm_buf_release(&romboot_data.out);
+	syna_tcm_buf_release(&romboot_data->out);
+
+	syna_pal_mem_free((void *)romboot_data);
 
 	return retval;
 }
