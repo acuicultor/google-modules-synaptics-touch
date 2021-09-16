@@ -145,7 +145,7 @@
  *        feature is enabled.
  */
 #if defined(HAS_REFLASH_FEATURE) || defined(HAS_ROMBOOT_REFLASH_FEATURE)
-/* #define STARTUP_REFLASH */
+#define STARTUP_REFLASH
 #endif
 /**
  * @brief  MULTICHIP_DUT_REFLASH

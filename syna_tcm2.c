@@ -80,7 +80,7 @@ static unsigned char custom_touch_format[] = {
 #ifdef STARTUP_REFLASH
 #define STARTUP_REFLASH_DELAY_TIME_MS (200)
 
-#define FW_IMAGE_NAME "synaptics/firmware.img"
+#define FW_IMAGE_NAME "synaptics.img"
 #endif
 
 /**
