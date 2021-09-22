@@ -324,6 +324,12 @@ struct syna_tcm {
 	struct notifier_block fb_notifier;
 #endif
 
+#if defined(USE_DRM_BRIDGE)
+	struct drm_bridge panel_bridge;
+	struct drm_connector *connector;
+	bool is_panel_lp_mode;
+#endif
+
 	/* fifo to pass the report to userspace */
 	unsigned int fifo_remaining_frame;
 	struct list_head frame_fifo_queue;
