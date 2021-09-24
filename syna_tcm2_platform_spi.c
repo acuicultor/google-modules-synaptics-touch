@@ -911,6 +911,7 @@ static int syna_spi_probe(struct spi_device *spi)
 	syna_spi_device->dev.platform_data = &syna_spi_hw_if;
 
 	spi->bits_per_word = 8;
+	spi->rt = true;
 
 	/* set up spi driver */
 	retval = spi_setup(spi);
