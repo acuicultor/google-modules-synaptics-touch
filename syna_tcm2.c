@@ -621,6 +621,12 @@ static irqreturn_t syna_dev_isr(int irq, void *data)
 	struct syna_tcm *tcm = data;
 	struct syna_hw_attn_data *attn = &tcm->hw_if->bdata_attn;
 
+	/* It is possible that interrupts were disabled while the handler is
+	 * executing, before acquiring the mutex. If so, simply return.
+	 */
+	if (syna_set_bus_ref(tcm, SYNA_BUS_REF_IRQ, true) < 0)
+		goto exit;
+
 	if (unlikely(gpio_get_value(attn->irq_gpio) != attn->irq_on_state))
 		goto exit;
 
@@ -668,6 +674,7 @@ static irqreturn_t syna_dev_isr(int irq, void *data)
 	}
 
 exit:
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_IRQ, false);
 	return IRQ_HANDLED;
 }
 
@@ -883,6 +890,9 @@ static void syna_dev_reflash_startup_work(struct work_struct *work)
 
 	pm_stay_awake(&tcm->pdev->dev);
 
+	if (syna_set_bus_ref(tcm, SYNA_BUS_REF_FW_UPDATE, true) < 0)
+		goto exit;
+
 	/* perform fw update */
 #ifdef MULTICHIP_DUT_REFLASH
 	/* do firmware update for the multichip-based device */
@@ -921,6 +931,7 @@ static void syna_dev_reflash_startup_work(struct work_struct *work)
 	}
 
 exit:
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_FW_UPDATE, false);
 	pm_relax(&tcm->pdev->dev);
 }
 #endif
@@ -1081,6 +1092,8 @@ exit:
 
 	tcm->slept_in_early_suspend = false;
 
+	complete_all(&tcm->bus_resumed);
+
 	return retval;
 }
 
@@ -1110,6 +1123,8 @@ static int syna_dev_suspend(struct device *dev)
 		return 0;
 
 	LOGI("Prepare to suspend device\n");
+
+	reinit_completion(&tcm->bus_resumed);
 
 	/* clear all input events  */
 	syna_dev_free_input_events(tcm);
@@ -1262,6 +1277,81 @@ static int syna_dev_fb_notifier_cb(struct notifier_block *nb,
 }
 #endif
 
+static void syna_suspend_work(struct work_struct *work)
+{
+	struct syna_tcm *tcm = container_of(work, struct syna_tcm, suspend_work);
+
+	syna_dev_suspend(&tcm->pdev->dev);
+}
+
+static void syna_resume_work(struct work_struct *work)
+{
+	struct syna_tcm *tcm = container_of(work, struct syna_tcm, resume_work);
+
+	syna_dev_resume(&tcm->pdev->dev);
+}
+
+void syna_aggregate_bus_state(struct syna_tcm *tcm)
+{
+	/* Complete or cancel any outstanding transitions */
+	cancel_work_sync(&tcm->suspend_work);
+	cancel_work_sync(&tcm->resume_work);
+
+	if ((tcm->bus_refmask == 0 && tcm->pwr_state != PWR_ON) ||
+	    (tcm->bus_refmask && tcm->pwr_state == PWR_ON))
+		return;
+
+	if (tcm->bus_refmask == 0)
+		queue_work(tcm->event_wq, &tcm->suspend_work);
+	else
+		queue_work(tcm->event_wq, &tcm->resume_work);
+}
+
+int syna_set_bus_ref(struct syna_tcm *tcm, u32 ref, bool enable)
+{
+	int result = 0;
+
+	mutex_lock(&tcm->bus_mutex);
+
+	if ((enable && (tcm->bus_refmask & ref)) ||
+	    (!enable && !(tcm->bus_refmask & ref))) {
+		LOGD("reference is unexpectedly set: mask=0x%04X, ref=0x%04X, enable=%d\n",
+		tcm->bus_refmask, ref, enable);
+		mutex_unlock(&tcm->bus_mutex);
+		return -EINVAL;
+	}
+
+	if (enable) {
+		/*
+		 * IRQs can only keep the bus active. IRQs received while the
+		 * bus is transferred to AOC should be ignored.
+		 */
+		if (ref == SYNA_BUS_REF_IRQ && tcm->bus_refmask == 0)
+			result = -EAGAIN;
+		else
+			tcm->bus_refmask |= ref;
+	} else
+		tcm->bus_refmask &= ~ref;
+	syna_aggregate_bus_state(tcm);
+
+	mutex_unlock(&tcm->bus_mutex);
+
+	/*
+	 * When triggering a wake, wait up to one second to resume. SCREEN_ON
+	 * and IRQ references do not need to wait.
+	 */
+	if (enable &&
+	    ref != SYNA_BUS_REF_SCREEN_ON && ref != SYNA_BUS_REF_IRQ) {
+		wait_for_completion_timeout(&tcm->bus_resumed, HZ);
+		if (tcm->pwr_state != PWR_ON) {
+			LOGE("Failed to wake the touch bus.\n");
+			result = -ETIMEDOUT;
+		}
+	}
+
+	return result;
+}
+
 #if defined(USE_DRM_BRIDGE)
 struct drm_connector *syna_get_bridge_connector(struct drm_bridge *bridge)
 {
@@ -1294,7 +1384,7 @@ static void syna_panel_bridge_enable(struct drm_bridge *bridge)
 
 	pr_debug("%s\n", __func__);
 	if (!tcm ->is_panel_lp_mode)
-		syna_dev_resume(&tcm->pdev->dev);
+		syna_set_bus_ref(tcm, SYNA_BUS_REF_SCREEN_ON, true);
 }
 
 static void syna_panel_bridge_disable(struct drm_bridge *bridge)
@@ -1310,7 +1400,7 @@ static void syna_panel_bridge_disable(struct drm_bridge *bridge)
 	}
 
 	pr_debug("%s\n", __func__);
-	syna_dev_suspend(&tcm->pdev->dev);
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SCREEN_ON, false);
 }
 
 static void syna_panel_bridge_mode_set(struct drm_bridge *bridge,
@@ -1329,9 +1419,9 @@ static void syna_panel_bridge_mode_set(struct drm_bridge *bridge,
 
 	tcm->is_panel_lp_mode = syna_bridge_is_lp_mode(tcm->connector);
 	if (tcm->is_panel_lp_mode)
-		syna_dev_suspend(&tcm->pdev->dev);
+		syna_set_bus_ref(tcm, SYNA_BUS_REF_SCREEN_ON, false);
 	else
-		syna_dev_resume(&tcm->pdev->dev);
+		syna_set_bus_ref(tcm, SYNA_BUS_REF_SCREEN_ON, true);
 }
 
 static const struct drm_bridge_funcs panel_bridge_funcs = {
@@ -1523,6 +1613,7 @@ end:
 #endif
 	tcm->pwr_state = PWR_ON;
 	tcm->is_connected = true;
+	tcm->bus_refmask = SYNA_BUS_REF_SCREEN_ON;
 
 	LOGI("TCM packrat: %d\n", tcm->tcm_dev->packrat_number);
 	LOGI("Configuration: name(%s), lpwg(%s), hw_reset(%s), irq_ctrl(%s)\n",
@@ -1645,6 +1736,21 @@ static int syna_dev_probe(struct platform_device *pdev)
 
 	device_init_wakeup(&pdev->dev, 1);
 
+	tcm->event_wq = alloc_workqueue("syna_wq", WQ_UNBOUND |
+					WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
+
+	if (!tcm->event_wq) {
+		LOGE("Cannot create work thread\n");
+		retval = -ENOMEM;
+		goto err_alloc_workqueue;
+	}
+
+	INIT_WORK(&tcm->suspend_work, syna_suspend_work);
+	INIT_WORK(&tcm->resume_work, syna_resume_work);
+
+	init_completion(&tcm->bus_resumed);
+	complete_all(&tcm->bus_resumed);
+
 #if defined(TCM_CONNECT_IN_PROBE)
 	/* connect to target device */
 	retval = tcm->dev_connect(tcm);
@@ -1707,6 +1813,9 @@ err_create_cdev:
 	tcm->dev_disconnect(tcm);
 err_connect:
 #endif
+	if (tcm->event_wq)
+		destroy_workqueue(tcm->event_wq);
+err_alloc_workqueue:
 	syna_tcm_buf_release(&tcm->event_data);
 	syna_pal_mutex_free(&tcm->tp_event_mutex);
 err_allocate_cdev:
@@ -1785,13 +1894,37 @@ static void syna_dev_shutdown(struct platform_device *pdev)
 	syna_dev_remove(pdev);
 }
 
-
 /**
  * Declare a TouchComm platform device
  */
 #ifdef CONFIG_PM
+#if defined(USE_DRM_BRIDGE)
+static int syna_pm_suspend(struct device *dev)
+{
+	struct syna_tcm *tcm = dev_get_drvdata(dev);
+
+	if (tcm->bus_refmask)
+		LOGW("bus_refmask 0x%X\n", tcm->bus_refmask);
+
+	if (tcm->pwr_state == PWR_ON) {
+		LOGW("can't suspend because touch bus is in use!\n");
+		return -EBUSY;
+	}
+
+	return 0;
+}
+
+static int syna_pm_resume(struct device *dev)
+{
+	return 0;
+}
+#endif
+
 static const struct dev_pm_ops syna_dev_pm_ops = {
-#if !defined(ENABLE_DISP_NOTIFIER) && !defined(USE_DRM_BRIDGE)
+#if defined(USE_DRM_BRIDGE)
+	.suspend = syna_pm_suspend,
+	.resume = syna_pm_resume,
+#elif !defined(ENABLE_DISP_NOTIFIER)
 	.suspend = syna_dev_suspend,
 	.resume = syna_dev_resume,
 #endif

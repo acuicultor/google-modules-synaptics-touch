@@ -256,6 +256,15 @@ enum power_state {
 };
 
 /**
+  * @brief: Bits masking for bus reference.
+  */
+enum {
+	SYNA_BUS_REF_SCREEN_ON		= 0x0001,
+	SYNA_BUS_REF_IRQ		= 0x0002,
+	SYNA_BUS_REF_FW_UPDATE		= 0x0004,
+};
+
+/**
  * @brief: context of the synaptics linux-based driver
  *
  * The structure defines the kernel specific data in linux-based driver
@@ -306,6 +315,14 @@ struct syna_tcm {
 	/* Workqueue used for fw update */
 	struct delayed_work reflash_work;
 	struct workqueue_struct *reflash_workqueue;
+
+	struct work_struct suspend_work;
+	struct work_struct resume_work;
+	struct workqueue_struct *event_wq;
+	struct completion bus_resumed;
+
+	u32 bus_refmask;
+	struct mutex bus_mutex;
 
 	/* IOCTL-related variables */
 	pid_t proc_pid;
@@ -417,6 +434,7 @@ void syna_cdev_update_report_queue(struct syna_tcm *tcm,
 #endif
 
 #endif
+int syna_set_bus_ref(struct syna_tcm *tcm, u32 ref, bool enable);
 
 #endif /* end of _SYNAPTICS_TCM2_DRIVER_H_ */
 
