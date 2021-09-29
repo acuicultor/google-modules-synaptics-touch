@@ -320,6 +320,7 @@ struct syna_tcm {
 	struct work_struct resume_work;
 	struct workqueue_struct *event_wq;
 	struct completion bus_resumed;
+	struct pinctrl *pinctrl;
 
 	u32 bus_refmask;
 	struct mutex bus_mutex;

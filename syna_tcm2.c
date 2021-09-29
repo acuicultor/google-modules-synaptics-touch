@@ -1014,6 +1014,34 @@ static int syna_dev_enter_lowpwr_sensing(struct syna_tcm *tcm)
 
 	return 0;
 }
+
+static int syna_pinctrl_configure(struct syna_tcm *tcm, bool enable)
+{
+	struct pinctrl_state *state;
+
+	if (IS_ERR_OR_NULL(tcm->pinctrl)) {
+		LOGE("Invalid pinctrl!\n");
+		return -EINVAL;
+	}
+
+	LOGD("%s\n", enable ? "ACTIVE" : "SUSPEND");
+
+	if (enable) {
+		state = pinctrl_lookup_state(tcm->pinctrl, "ts_active");
+		if (IS_ERR(state))
+			LOGE("Could not get ts_active pinstate!\n");
+	} else {
+		state = pinctrl_lookup_state(tcm->pinctrl, "ts_suspend");
+		if (IS_ERR(state))
+			LOGE("Could not get ts_suspend pinstate!\n");
+	}
+
+	if (!IS_ERR_OR_NULL(state))
+		return pinctrl_select_state(tcm->pinctrl, state);
+
+	return 0;
+}
+
 /**
  * syna_dev_resume()
  *
@@ -1039,6 +1067,8 @@ static int syna_dev_resume(struct device *dev)
 		return 0;
 
 	LOGI("Prepare to resume device\n");
+
+	syna_pinctrl_configure(tcm, true);
 
 #ifdef RESET_ON_RESUME
 	syna_pal_sleep_ms(RESET_ON_RESUME_DELAY_MS);
@@ -1148,6 +1178,8 @@ static int syna_dev_suspend(struct device *dev)
 	/* disable irq */
 	if (irq_disabled && (hw_if->ops_enable_irq))
 		hw_if->ops_enable_irq(hw_if, false);
+
+	syna_pinctrl_configure(tcm, false);
 
 	LOGI("Device suspended (pwr_state:%d)\n", tcm->pwr_state);
 
@@ -1697,6 +1729,13 @@ static int syna_dev_probe(struct platform_device *pdev)
 	if (!tcm) {
 		LOGE("Fail to create the instance of syna_tcm\n");
 		return -ENOMEM;
+	}
+
+	tcm->pinctrl = devm_pinctrl_get(pdev->dev.parent);
+	if (IS_ERR_OR_NULL(tcm->pinctrl)) {
+		LOGE("Could not get pinctrl!\n");
+	} else {
+		syna_pinctrl_configure(tcm, true);
 	}
 
 	/* allocate the TouchCom device handle
