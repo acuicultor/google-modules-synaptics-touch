@@ -207,6 +207,7 @@ enum dynamic_tcm_config_id {
 	DC_ENABLE_FACE_DETECTION = 0x0e,
 	DC_INHIBIT_ACTIVE_GESTURE = 0x0f,
 	DC_DISABLE_PROXIMITY = 0x10,
+	DC_FORCE_DOZE_MODE = 0xF0,
 };
 
 /**

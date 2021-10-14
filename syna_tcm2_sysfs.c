@@ -509,14 +509,110 @@ static struct kobj_attribute kobj_attr_reset =
 	__ATTR(reset, 0220, NULL, syna_sysfs_reset_store);
 
 /**
+ * syna_sysfs_scan_mode_store()
+ *
+ * Attribute to set different scan mode.
+ * 0 - Lock Normal Mode Active Mode.
+ * 1 - Lock Normal Mode Doze Mode.
+ * 2 - Lock Low Power Gesture Mode Active Mode.
+ * 3 - Lock Low Power Gesture Mode Doze Mode.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [ in] buf:   string buffer input
+ *    [ in] count: size of buffer input
+ *
+ * @return
+ *    on success, return count; otherwise, return error code
+ */
+static ssize_t syna_sysfs_scan_mode_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	int retval = 0;
+	unsigned int input;
+	unsigned char command = 0;
+	struct device *p_dev;
+	struct kobject *p_kobj;
+	struct syna_tcm *tcm;
+	struct syna_hw_interface *hw_if;
+
+	p_kobj = g_sysfs_dir->parent;
+	p_dev = container_of(p_kobj, struct device, kobj);
+	tcm = dev_get_drvdata(p_dev);
+	hw_if = tcm->hw_if;
+
+	if (kstrtouint(buf, 10, &input))
+		return -EINVAL;
+
+	if (!tcm->is_connected) {
+		LOGW("Device is NOT connected\n");
+		retval = count;
+		goto exit;
+	}
+
+	syna_pal_mutex_lock(&g_extif_mutex);
+
+	if (hw_if->ops_hw_reset) {
+		hw_if->ops_hw_reset(hw_if);
+	} else {
+		retval = syna_tcm_reset(tcm->tcm_dev);
+		if (retval < 0) {
+			LOGE("Fail to do reset\n");
+			goto exit;
+		}
+	}
+
+	if (input == 0 || input == 2) {
+		command = DC_DISABLE_DOZE;
+	} else if (input == 1 || input == 3) {
+		command = DC_FORCE_DOZE_MODE;
+	} else {
+		LOGW("Unsupport command %u\n", input);
+		goto exit;
+	}
+
+	if (input == 2 || input == 3) {
+		retval = syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_ENABLE_WAKEUP_GESTURE_MODE,
+				1,
+				RESP_IN_ATTN);
+		if (retval < 0) {
+			LOGE("Fail to enable wakeup gesture via DC command\n");
+			goto exit;
+		}
+	}
+
+	retval = syna_tcm_set_dynamic_config(tcm->tcm_dev,
+			command,
+			1,
+			RESP_IN_ATTN);
+	if (retval < 0) {
+		LOGE("Fail to set DC command %d\n", command);
+		goto exit;
+	}
+
+	retval = count;
+
+exit:
+	syna_pal_mutex_unlock(&g_extif_mutex);
+	return retval;
+}
+
+static struct kobj_attribute kobj_attr_scan_mode =
+	__ATTR(scan_mode, 0220, NULL, syna_sysfs_scan_mode_store);
+
+/**
  * declaration of sysfs attributes
  */
 static struct attribute *attrs[] = {
 	&kobj_attr_info.attr,
 	&kobj_attr_irq_en.attr,
 	&kobj_attr_reset.attr,
+	&kobj_attr_scan_mode.attr,
 	NULL,
 };
+
 
 static struct attribute_group attr_group = {
 	.attrs = attrs,
