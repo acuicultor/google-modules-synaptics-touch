@@ -262,6 +262,9 @@ enum {
 	SYNA_BUS_REF_SCREEN_ON		= 0x0001,
 	SYNA_BUS_REF_IRQ		= 0x0002,
 	SYNA_BUS_REF_FW_UPDATE		= 0x0004,
+	SYNA_BUS_REF_SYSFS		= 0x0008,
+	SYNA_BUS_REF_FORCE_ACTIVE	= 0x0010,
+	SYNA_BUS_REF_BUGREPORT		= 0x0020,
 };
 
 /**
@@ -324,6 +327,7 @@ struct syna_tcm {
 
 	u32 bus_refmask;
 	struct mutex bus_mutex;
+	ktime_t bugreport_ktime_start;
 
 	/* IOCTL-related variables */
 	pid_t proc_pid;

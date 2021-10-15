@@ -1947,6 +1947,13 @@ static int syna_pm_suspend(struct device *dev)
 
 	if (tcm->pwr_state == PWR_ON) {
 		LOGW("can't suspend because touch bus is in use!\n");
+		if (tcm->bus_refmask == SYNA_BUS_REF_BUGREPORT &&
+		    ktime_ms_delta(ktime_get(), tcm->bugreport_ktime_start) > 30 * MSEC_PER_SEC) {
+			syna_set_bus_ref(tcm, SYNA_BUS_REF_BUGREPORT, false);
+			pm_relax(&tcm->pdev->dev);
+			tcm->bugreport_ktime_start = 0;
+			LOGE("Force release SYNA_BUS_REF_BUGREPORT reference bit.");
+		}
 		return -EBUSY;
 	}
 
