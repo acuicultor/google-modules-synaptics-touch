@@ -218,8 +218,8 @@ int syna_tcm_compare_image_id_info(struct tcm_dev *tcm_dev,
 	LOGN("Device firmware ID: %d, image build id: %d\n",
 		device_fw_id, image_fw_id);
 
-	if (image_fw_id > device_fw_id) {
-		LOGN("Image build ID newer than device fw ID\n");
+	if (image_fw_id != device_fw_id) {
+		LOGN("Image build ID is different from device fw ID\n");
 		result = UPDATE_FIRMWARE_CONFIG;
 		goto exit;
 	} else {
