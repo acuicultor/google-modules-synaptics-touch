@@ -145,6 +145,7 @@ struct syna_hw_interface {
 	struct syna_hw_attn_data bdata_attn;
 	struct syna_hw_rst_data bdata_rst;
 	struct syna_hw_pwr_data bdata_pwr;
+	const char *fw_name;
 
 	/* Operation to do power on/off, if supported
 	 *

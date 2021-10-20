@@ -77,17 +77,6 @@ static unsigned char custom_touch_format[] = {
 #endif
 
 /**
- * @section: STARTUP_REFLASH_DELAY_TIME_MS
- *           The delayed time to start fw update during the startup time.
- *           This configuration depends on STARTUP_REFLASH.
- */
-#ifdef STARTUP_REFLASH
-#define STARTUP_REFLASH_DELAY_TIME_MS (200)
-
-#define FW_IMAGE_NAME "synaptics.img"
-#endif
-
-/**
  * @section: RESET_ON_RESUME_DELAY_MS
  *           The delayed time to issue a reset on resume state.
  *           This configuration depends on RESET_ON_RESUME.
@@ -876,10 +865,10 @@ static void syna_dev_reflash_startup_work(struct work_struct *work)
 
 	/* get firmware image */
 	retval = request_firmware(&fw_entry,
-			FW_IMAGE_NAME,
+			tcm->hw_if->fw_name,
 			tcm->pdev->dev.parent);
 	if (retval < 0) {
-		LOGE("Fail to request %s\n", FW_IMAGE_NAME);
+		LOGE("Fail to request %s\n", tcm->hw_if->fw_name);
 		return;
 	}
 

@@ -159,6 +159,17 @@
 #endif
 
 /**
+ * @section: STARTUP_REFLASH_DELAY_TIME_MS
+ *           The delayed time to start fw update during the startup time.
+ *           This configuration depends on STARTUP_REFLASH.
+ */
+#ifdef STARTUP_REFLASH
+#define STARTUP_REFLASH_DELAY_TIME_MS (200)
+
+#define FW_IMAGE_NAME "synaptics.img"
+#endif
+
+/**
  * @brief  ENABLE_DISP_NOTIFIER
  *         Open if having display notification event and willing to listen
  *         the event from display driver.
