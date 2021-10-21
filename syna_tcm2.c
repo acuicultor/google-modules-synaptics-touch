@@ -910,13 +910,11 @@ static void syna_dev_reflash_startup_work(struct work_struct *work)
 		goto exit;
 	}
 
-	/* allocate the input device if not registered yet */
-	if (tcm->input_dev == NULL) {
-		retval = syna_dev_set_up_input_device(tcm);
-		if (retval < 0) {
-			LOGE("Fail to register input device\n");
-			goto exit;
-		}
+	/* check and re-create the input device if needed */
+	retval = syna_dev_set_up_input_device(tcm);
+	if (retval < 0) {
+		LOGE("Fail to register input device\n");
+		goto exit;
 	}
 
 exit:

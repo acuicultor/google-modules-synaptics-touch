@@ -44,7 +44,7 @@
 #include "syna_tcm2_platform.h"
 
 
-#define SYNA_TCM_CORE_LIB_VERSION 0x0111
+#define SYNA_TCM_CORE_LIB_VERSION 0x0112
 
 
 /**
@@ -596,7 +596,7 @@ struct tcm_message_data_blob {
 	unsigned char seq_toggle;
 	unsigned int default_resp_reading;
 
-	/* completion event command processing */
+	/* completion event for command processing */
 	syna_pal_completion_t cmd_completion;
 
 	/* internal buffers
@@ -614,6 +614,13 @@ struct tcm_message_data_blob {
 	/* mutex for the read/write protection */
 	syna_pal_mutex_t rw_mutex;
 
+	/* flag for the enabling of predict reading
+	 * predict reading aims to retrieve all data in one transfer;
+	 * otherwise, standard reading reads 4-byte header and payload
+	 * data separately
+	 */
+	bool predict_reads;
+	unsigned int predict_length;
 };
 
 /**

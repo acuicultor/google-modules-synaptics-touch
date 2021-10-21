@@ -222,9 +222,6 @@ int syna_tcm_compare_image_id_info(struct tcm_dev *tcm_dev,
 		LOGN("Image build ID is different from device fw ID\n");
 		result = UPDATE_FIRMWARE_CONFIG;
 		goto exit;
-	} else {
-		result = UPDATE_NONE;
-		goto exit;
 	}
 
 	image_config_id = header->customer_config_id;

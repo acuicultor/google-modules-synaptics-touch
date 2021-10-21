@@ -1676,3 +1676,32 @@ exit:
 	return retval;
 }
 
+/**
+ * syna_tcm_enable_predict_reading()
+ *
+ * predict reading aims to retrieve all data in one transfer;
+ * while, standard reads will read 4-byte header and payload data separately
+ *
+ * @param
+ *    [ in] tcm_dev: the device handle
+ *    [ in] en:      '1' to low power deep sleep mode; '0' to active mode
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
+ */
+int syna_tcm_enable_predict_reading(struct tcm_dev *tcm_dev, bool en)
+{
+	if (!tcm_dev) {
+		LOGE("Invalid tcm device handle\n");
+		return _EINVAL;
+	}
+
+	tcm_dev->msg_data.predict_reads = en;
+	tcm_dev->msg_data.predict_length = 0;
+
+	LOGI("Predicted reading is %s\n",
+		(en) ? "enabled":"disabled");
+
+	return 0;
+}
+

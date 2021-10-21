@@ -485,7 +485,7 @@ exit:
  *
  * @param
  *    [ in] tcm_dev: the device handle
- *    [ in] length:  length of payload data
+ *    [ in] length:  remaining length of payload data
  *
  * @return
  *    on success, 0 or positive value; otherwise, negative value on error.
@@ -511,9 +511,18 @@ static int syna_tcm_v1_continued_read(struct tcm_dev *tcm_dev,
 
 	tcm_msg = &tcm_dev->msg_data;
 
+	if ((length == 0) || (tcm_msg->payload_length == 0))
+		return 0;
+
+	if ((length & 0xffff) == 0xffff) {
+		LOGE("Invalid length to read\n");
+		return _EINVAL;
+	}
+
 	/* continued read packet contains the header, payload, and a padding */
-	total_length = MESSAGE_HEADER_SIZE + length + 1;
-	remaining_length = total_length - MESSAGE_HEADER_SIZE;
+	total_length = MESSAGE_HEADER_SIZE + tcm_msg->payload_length + 1;
+	/* length to read, remember a padding at the end */
+	remaining_length = length + 1;
 
 	syna_tcm_buf_lock(&tcm_msg->in);
 
@@ -527,7 +536,7 @@ static int syna_tcm_v1_continued_read(struct tcm_dev *tcm_dev,
 	}
 
 	/* available chunk space for payload =
-	 *     total chunk size - (header marker byte + header status byte)
+	 *     total chunk size - (marker + status code)
 	 */
 	if (tcm_dev->max_rd_size == 0)
 		chunk_space = remaining_length;
@@ -537,7 +546,7 @@ static int syna_tcm_v1_continued_read(struct tcm_dev *tcm_dev,
 	chunks = syna_pal_ceil_div(remaining_length, chunk_space);
 	chunks = chunks == 0 ? 1 : chunks;
 
-	offset = MESSAGE_HEADER_SIZE;
+	offset = MESSAGE_HEADER_SIZE + (tcm_msg->payload_length - length);
 
 	syna_tcm_buf_lock(&tcm_msg->temp);
 
@@ -629,6 +638,8 @@ static int syna_tcm_v1_read_message(struct tcm_dev *tcm_dev,
 	struct tcm_message_data_blob *tcm_msg = NULL;
 	syna_pal_mutex_t *rw_mutex = NULL;
 	syna_pal_completion_t *cmd_completion = NULL;
+	unsigned int len = 0;
+	bool do_predict = false;
 
 	if (!tcm_dev) {
 		LOGE("Invalid tcm device handle\n");
@@ -639,6 +650,9 @@ static int syna_tcm_v1_read_message(struct tcm_dev *tcm_dev,
 	rw_mutex = &tcm_msg->rw_mutex;
 	cmd_completion = &tcm_msg->cmd_completion;
 
+	/* predict reading is applied when report streaming only */
+	do_predict = (ATOMIC_GET(tcm_msg->command_status) == CMD_STATE_IDLE);
+
 	if (status_report_code)
 		*status_report_code = STATUS_INVALID;
 
@@ -646,9 +660,27 @@ static int syna_tcm_v1_read_message(struct tcm_dev *tcm_dev,
 
 	syna_tcm_buf_lock(&tcm_msg->in);
 
+	/* determine the length to read */
+	len = MESSAGE_HEADER_SIZE;
+	if (tcm_msg->predict_reads && do_predict)
+		len += tcm_msg->predict_length;
+
+	/* ensure the size of in.buf */
+	if (len > tcm_msg->in.buf_size) {
+		retval = syna_tcm_buf_alloc(&tcm_msg->in, len);
+		if (retval < 0) {
+			LOGE("Fail to allocate memory for buf_in\n");
+			syna_tcm_buf_unlock(&tcm_msg->in);
+
+			tcm_msg->status_report_code = STATUS_INVALID;
+			tcm_msg->payload_length = 0;
+			goto exit;
+		}
+	}
+
 	/* read in the message header from device */
 	retval = syna_tcm_v1_read(tcm_dev,
-			MESSAGE_HEADER_SIZE,
+			len,
 			tcm_msg->in.buf,
 			tcm_msg->in.buf_size
 			);
@@ -676,31 +708,16 @@ static int syna_tcm_v1_read_message(struct tcm_dev *tcm_dev,
 
 	syna_tcm_buf_unlock(&tcm_msg->in);
 
-	if ((tcm_msg->status_report_code <= STATUS_ERROR) ||
-		(tcm_msg->status_report_code == STATUS_INVALID)) {
-		switch (tcm_msg->status_report_code) {
-		case STATUS_OK:
-			break;
-		case STATUS_CONTINUED_READ:
-			LOGE("Out-of-sync continued read\n");
-		case STATUS_IDLE:
-			tcm_msg->payload_length = 0;
-			retval = 0;
-			goto exit;
-		default:
-			LOGE("Incorrect Status code, 0x%02x\n",
-				tcm_msg->status_report_code);
-			tcm_msg->payload_length = 0;
-			goto do_dispatch;
-		}
-	}
-
 	if (tcm_msg->payload_length == 0)
 		goto do_dispatch;
 
+	if (tcm_msg->payload_length > (len - MESSAGE_HEADER_SIZE))
+		len = tcm_msg->payload_length - (len - MESSAGE_HEADER_SIZE);
+	else
+		len = 0;
+
 	/* retrieve the remaining data, if any */
-	retval = syna_tcm_v1_continued_read(tcm_dev,
-			tcm_msg->payload_length);
+	retval = syna_tcm_v1_continued_read(tcm_dev, len);
 	if (retval < 0) {
 		LOGE("Fail to do continued read\n");
 		goto exit;
@@ -737,6 +754,26 @@ do_dispatch:
 	tcm_dev->external_buf.data_length = tcm_msg->payload_length;
 	syna_tcm_buf_unlock(&tcm_dev->external_buf);
 
+	if ((tcm_msg->status_report_code <= STATUS_ERROR) ||
+		(tcm_msg->status_report_code == STATUS_INVALID)) {
+		switch (tcm_msg->status_report_code) {
+		case STATUS_OK:
+			break;
+		case STATUS_CONTINUED_READ:
+			LOGE("Out-of-sync continued read\n");
+			retval = _EIO;
+			goto exit;
+		case STATUS_IDLE:
+			retval = 0;
+			goto exit;
+		default:
+			LOGE("Incorrect Status code, 0x%02x\n",
+				tcm_msg->status_report_code);
+			retval = _EIO;
+			goto exit;
+		}
+	}
+
 	/* process the retrieved packet */
 	if (tcm_msg->status_report_code >= REPORT_IDENTIFY)
 		syna_tcm_v1_dispatch_report(tcm_dev);
@@ -746,6 +783,17 @@ do_dispatch:
 	/* copy the status report code to caller */
 	if (status_report_code)
 		*status_report_code = tcm_msg->status_report_code;
+
+	/* update the length for predict reading */
+	if (tcm_msg->predict_reads && do_predict) {
+		if (tcm_dev->max_rd_size < MESSAGE_HEADER_SIZE)
+			tcm_msg->predict_length = tcm_msg->payload_length;
+		else
+			tcm_msg->predict_length = MIN(tcm_msg->payload_length,
+				tcm_dev->max_rd_size - MESSAGE_HEADER_SIZE - 1);
+
+		tcm_msg->predict_length += 1; /* padding byte */
+	}
 
 	retval = 0;
 
@@ -1002,7 +1050,7 @@ int syna_tcm_v1_detect(struct tcm_dev *tcm_dev, unsigned char *data,
 		return _EINVAL;
 	}
 
-	if ((!data) || (size < MESSAGE_HEADER_SIZE)) {
+	if ((!data) || (size != MESSAGE_HEADER_SIZE)) {
 		LOGE("Invalid parameters\n");
 		return _EINVAL;
 	}
@@ -1020,6 +1068,7 @@ int syna_tcm_v1_detect(struct tcm_dev *tcm_dev, unsigned char *data,
 	if (header->code == REPORT_IDENTIFY) {
 
 		payload_length = syna_pal_le2_to_uint(header->length);
+		tcm_msg->payload_length = payload_length;
 
 		/* retrieve the identify info packet */
 		retval = syna_tcm_v1_continued_read(tcm_dev,

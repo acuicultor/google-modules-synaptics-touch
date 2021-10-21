@@ -414,5 +414,20 @@ int syna_tcm_send_command(struct tcm_dev *tcm_dev,
 			unsigned int payload_length, unsigned char *resp_code,
 			struct tcm_buffer *resp, unsigned int delay_ms_resp);
 
+/**
+ * syna_tcm_enable_predict_reading()
+ *
+ * predict reading aims to retrieve all data in one transfer;
+ * while, standard reads will read 4-byte header and payload data separately
+ *
+ * @param
+ *    [ in] tcm_dev: the device handle
+ *    [ in] en:      '1' to low power deep sleep mode; '0' to active mode
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
+ */
+int syna_tcm_enable_predict_reading(struct tcm_dev *tcm_dev, bool en);
+
 
 #endif /* end of _SYNAPTICS_TOUCHCOM_BASE_FUNCS_H_ */
