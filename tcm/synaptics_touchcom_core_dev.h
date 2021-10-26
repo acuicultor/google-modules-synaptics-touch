@@ -44,7 +44,7 @@
 #include "syna_tcm2_platform.h"
 
 
-#define SYNA_TCM_CORE_LIB_VERSION 0x0112
+#define SYNA_TCM_CORE_LIB_VERSION 0x0113
 
 
 /**
@@ -728,7 +728,6 @@ struct tcm_dev {
 	void *cbdata_touch_data_parse;
 	tcm_gesture_parse_callback_t custom_gesture_parse_func;
 	void *cbdata_gesture_parse;
-
 };
 /* end of structure syna_tcm_dev */
 

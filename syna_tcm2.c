@@ -704,6 +704,20 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 		}
 	}
 
+	/* handling the particular report data */
+	switch (code) {
+	case REPORT_HEAT_MAP:
+		/* for 'heat map' ($c1) report,
+		 * report data has been stored at tcm->event_data.buf;
+		 * while, tcm->event_data.data_length is the size of data
+		 */
+		LOGD("Heat map data received, size:%d\n",
+			tcm->event_data.data_length);
+		break;
+	default:
+		break;
+	}
+
 exit:
 	syna_set_bus_ref(tcm, SYNA_BUS_REF_IRQ, false);
 	return IRQ_HANDLED;
@@ -958,7 +972,6 @@ static void syna_dev_reflash_startup_work(struct work_struct *work)
 		LOGE("Fail to register input device\n");
 		goto exit;
 	}
-
 exit:
 	syna_set_bus_ref(tcm, SYNA_BUS_REF_FW_UPDATE, false);
 	pm_relax(&tcm->pdev->dev);

@@ -45,6 +45,19 @@
 #include "syna_tcm2_testing.h"
 #endif
 
+#if (KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE) || \
+	defined(HAVE_UNLOCKED_IOCTL)
+#define USE_UNLOCKED_IOCTL
+#endif
+
+#if defined(CONFIG_COMPAT) && defined(HAVE_COMPAT_IOCTL)
+#define USE_COMPAT_IOCTL
+#endif
+
+#if (KERNEL_VERSION(5, 4, 0) <= LINUX_VERSION_CODE)
+#define REPLACE_KTIME
+#endif
+
 
 /* #define ENABLE_PID_TASK */
 
@@ -58,7 +71,7 @@ struct syna_ioctl_data {
 	unsigned char __user *buf;
 };
 
-#if defined(CONFIG_COMPAT) && defined(HAVE_COMPAT_IOCTL)
+#ifdef USE_COMPAT_IOCTL
 struct syna_tcm_ioctl_data_compat {
 	unsigned int data_length;
 	unsigned int buf_size;
@@ -159,7 +172,7 @@ struct fifo_queue {
 	struct list_head next;
 	unsigned char *fifo_data;
 	unsigned int data_length;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0))
+#ifdef REPLACE_KTIME
 	struct timespec64 timestamp;
 #else
 	struct timeval timestamp;
@@ -201,12 +214,6 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 
 	count = 0;
 
-	if (!tcm->is_connected) {
-		retval = scnprintf(buf, PAGE_SIZE - count,
-				"Device is NOT connected\n");
-		goto exit;
-	}
-
 	retval = scnprintf(buf, PAGE_SIZE - count,
 			"Driver version:     %d.%s\n",
 			SYNAPTICS_TCM_DRIVER_VERSION,
@@ -226,6 +233,12 @@ static ssize_t syna_sysfs_info_show(struct kobject *kobj,
 
 	buf += retval;
 	count += retval;
+
+	if (!tcm->is_connected) {
+		retval = scnprintf(buf, PAGE_SIZE - count,
+				"Device is NOT connected\n");
+		goto exit;
+	}
 
 	retval = scnprintf(buf, PAGE_SIZE - count,
 			"TouchComm version:  %d\n", tcm_dev->id_info.version);
@@ -1007,7 +1020,7 @@ static int syna_cdev_insert_fifo(struct syna_tcm *tcm,
 	pfifo_data->data_length = length;
 
 	memcpy((void *)pfifo_data->fifo_data, (void *)buf_ptr, length);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0))
+#ifdef REPLACE_KTIME
 	ktime_get_real_ts64(&(pfifo_data->timestamp));
 #else
 	do_gettimeofday(&(pfifo_data->timestamp));
@@ -1248,15 +1261,16 @@ static int syna_cdev_ioctl_get_frame(struct syna_tcm *tcm,
 		pfifo_data->fifo_data[2], pfifo_data->fifo_data[3]);
 
 	list_del(&pfifo_data->next);
+
+	if (retval >= 0)
+		retval = pfifo_data->data_length;
+
 	kfree(pfifo_data->fifo_data);
 	kfree(pfifo_data);
 	if (tcm->fifo_remaining_frame != 0)
 		tcm->fifo_remaining_frame--;
 
 	syna_pal_mutex_unlock(&g_fifo_queue_mutex);
-
-	if (retval >= 0)
-		retval = pfifo_data->data_length;
 
 exit:
 	return retval;
@@ -1769,8 +1783,8 @@ static int syna_cdev_ioctl_raw_write(struct syna_tcm *tcm,
 		goto exit;
 	}
 
-	LOGD("Write command: 0x%02x, legnth: 0x%02x, 0x%02x\n",
-		data[0], data[1], data[2]);
+	LOGD("Write command: 0x%02x, legnth: 0x%02x, 0x%02x (size:%d)\n",
+		data[0], data[1], data[2], wr_size);
 
 	retval = syna_tcm_write(tcm->tcm_dev,
 			data,
@@ -1933,8 +1947,7 @@ static int syna_cdev_ioctl_old_dispatch(struct syna_tcm *tcm,
  * @return
  *    on success, 0; otherwise, negative value on error.
  */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)) || \
-	defined (HAVE_UNLOCKED_IOCTL)
+#ifdef USE_UNLOCKED_IOCTL
 static long syna_cdev_ioctls(struct file *filp, unsigned int cmd,
 		unsigned long arg)
 #else
@@ -2004,7 +2017,7 @@ exit:
 	return retval;
 }
 
-#if defined(CONFIG_COMPAT) && defined(HAVE_COMPAT_IOCTL)
+#ifdef USE_COMPAT_IOCTL
 /**
  * syna_cdev_compat_ioctls()
  *
@@ -2283,10 +2296,9 @@ static int syna_cdev_release(struct inode *inp, struct file *filp)
  */
 static const struct file_operations device_fops = {
 	.owner = THIS_MODULE,
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,9,0)) || \
-	defined (HAVE_UNLOCKED_IOCTL)
+#ifdef USE_UNLOCKED_IOCTL
 	.unlocked_ioctl = syna_cdev_ioctls,
-#if defined(CONFIG_COMPAT) && defined(HAVE_COMPAT_IOCTL)
+#ifdef USE_COMPAT_IOCTL
 	.compat_ioctl = syna_cdev_compat_ioctls,
 #endif
 #else

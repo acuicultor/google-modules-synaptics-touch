@@ -54,7 +54,7 @@
 
 #define SYNAPTICS_TCM_DRIVER_ID (1 << 0)
 #define SYNAPTICS_TCM_DRIVER_VERSION 1
-#define SYNAPTICS_TCM_DRIVER_SUBVER "2.0"
+#define SYNAPTICS_TCM_DRIVER_SUBVER "2.2"
 
 /**
  * @section: Driver Configurations
@@ -276,6 +276,13 @@ enum {
 	SYNA_BUS_REF_SYSFS		= 0x0008,
 	SYNA_BUS_REF_FORCE_ACTIVE	= 0x0010,
 	SYNA_BUS_REF_BUGREPORT		= 0x0020,
+};
+
+/**
+ * @brief: Custom Commands, Reports, or Events
+ */
+enum custom_report_type {
+	REPORT_HEAT_MAP = 0xc1,
 };
 
 /**
