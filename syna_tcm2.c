@@ -1741,6 +1741,7 @@ static int syna_dev_probe(struct platform_device *pdev)
 	syna_tcm_buf_init(&tcm->event_data);
 
 	syna_pal_mutex_alloc(&tcm->tp_event_mutex);
+	mutex_init(&tcm->bus_mutex);
 
 #ifdef ENABLE_WAKEUP_GESTURE
 	tcm->lpwg_enabled = true;
