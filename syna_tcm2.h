@@ -339,6 +339,9 @@ struct syna_tcm {
 	u32 bus_refmask;
 	struct mutex bus_mutex;
 	ktime_t bugreport_ktime_start;
+	ktime_t timestamp; /* Time that the event was first received from the
+			    * touch IC, acquired during hard interrupt, in
+			    * CLOCK_MONOTONIC */
 
 	/* IOCTL-related variables */
 	pid_t proc_pid;
