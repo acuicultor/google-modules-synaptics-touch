@@ -252,6 +252,7 @@ static void syna_dev_free_input_events(struct syna_tcm *tcm)
 #ifdef TYPE_B_PROTOCOL
 	for (idx = 0; idx < MAX_NUM_OBJECTS; idx++) {
 		input_mt_slot(input_dev, idx);
+		input_report_abs(input_dev, ABS_MT_PRESSURE, 0);
 		input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, 0);
 	}
 #endif
@@ -285,6 +286,7 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 	unsigned int idx;
 	unsigned int x;
 	unsigned int y;
+	unsigned int z;
 	int wx;
 	int wy;
 	unsigned int status;
@@ -332,6 +334,7 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 		case LIFT:
 #ifdef TYPE_B_PROTOCOL
 			input_mt_slot(input_dev, idx);
+			input_report_abs(input_dev, ABS_MT_PRESSURE, 0);
 			input_mt_report_slot_state(input_dev,
 					MT_TOOL_FINGER, 0);
 #endif
@@ -342,6 +345,13 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 			y = object_data[idx].y_pos;
 			wx = object_data[idx].x_width;
 			wy = object_data[idx].y_width;
+
+			if (object_data[idx].z == 0) {
+				z = 1;
+				LOGW("Get a touch coordinate with pressure = 0");
+			} else {
+				z = object_data[idx].z;
+			}
 #ifdef REPORT_SWAP_XY
 			x = x ^ y;
 			y = x ^ y;
@@ -362,6 +372,7 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 			input_report_key(input_dev, BTN_TOOL_FINGER, 1);
 			input_report_abs(input_dev, ABS_MT_POSITION_X, x);
 			input_report_abs(input_dev, ABS_MT_POSITION_Y, y);
+			input_report_abs(input_dev, ABS_MT_PRESSURE, z);
 #ifdef REPORT_TOUCH_WIDTH
 			input_report_abs(input_dev,
 					ABS_MT_TOUCH_MAJOR, MAX(wx, wy));
@@ -371,7 +382,7 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 #ifndef TYPE_B_PROTOCOL
 			input_mt_sync(input_dev);
 #endif
-			LOGD("Finger %d: x = %d, y = %d\n", idx, x, y);
+			LOGD("Finger %d: x = %d, y = %d, z = %d\n", idx, x, y, z);
 			touch_count++;
 			break;
 		default:
@@ -455,6 +466,7 @@ static int syna_dev_create_input_device(struct syna_tcm *tcm)
 			ABS_MT_POSITION_X, 0, tcm_dev->max_x, 0, 0);
 	input_set_abs_params(input_dev,
 			ABS_MT_POSITION_Y, 0, tcm_dev->max_y, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_PRESSURE, 0, 255, 0, 0);
 
 	input_mt_init_slots(input_dev, tcm_dev->max_objects,
 			INPUT_MT_DIRECT);
