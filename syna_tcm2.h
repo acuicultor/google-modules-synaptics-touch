@@ -48,6 +48,11 @@
 #include <touch_bus_negotiator.h>
 #endif
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+#include <touch_offload.h>
+#include <linux/hrtimer.h>
+#endif
+
 #define PLATFORM_DRIVER_NAME "synaptics_tcm"
 
 #define TOUCH_INPUT_NAME "synaptics_tcm_touch"
@@ -410,6 +415,13 @@ struct syna_tcm {
 	ktime_t timestamp; /* Time that the event was first received from the
 			    * touch IC, acquired during hard interrupt, in
 			    * CLOCK_MONOTONIC */
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	struct touch_offload_context offload;
+	u16 *heatmap_buff;
+	struct hrtimer heatmap_timer;
+	struct touch_offload_frame *reserved_frame;
+#endif
 
 	/* IOCTL-related variables */
 	pid_t proc_pid;

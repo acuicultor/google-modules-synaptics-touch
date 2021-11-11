@@ -456,6 +456,10 @@ static int syna_spi_parse_dt(struct syna_hw_interface *hw_if,
 	struct of_phandle_args panelmap;
 	struct drm_panel *panel = NULL;
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	u8 offload_id[4];
+#endif
+
 	if (of_property_read_bool(np, "synaptics,panel_map")) {
 		for (index = 0 ;; index++) {
 			retval = of_parse_phandle_with_fixed_args(np,
@@ -653,6 +657,21 @@ static int syna_spi_parse_dt(struct syna_hw_interface *hw_if,
 		bus->spi_mode = 0;
 	}
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	hw_if->offload_id = 0;
+	retval = of_property_read_u8_array(np, "synaptics,touch_offload_id",
+					    offload_id, 4);
+	if (retval == -EINVAL)
+		dev_err(dev,
+			"Failed to read synaptics,touch_offload_id with error = %d\n",
+			retval);
+	else {
+		hw_if->offload_id = *(u32 *)offload_id;
+		dev_info(dev, "Offload device ID = \"%c%c%c%c\" / 0x%08X\n",
+		    offload_id[0], offload_id[1], offload_id[2], offload_id[3],
+		    hw_if->offload_id);
+	}
+#endif
 
 	return 0;
 }
