@@ -310,6 +310,7 @@ enum tcm_report_type {
 	REPORT_TOUCH = 0x11,
 	REPORT_DELTA = 0x12,
 	REPORT_RAW = 0x13,
+	REPORT_BASELINE = 0x14,
 };
 
 /**

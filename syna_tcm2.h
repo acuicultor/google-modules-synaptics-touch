@@ -359,6 +359,9 @@ struct syna_tcm {
 #if defined(ENABLE_DISP_NOTIFIER)
 	struct notifier_block fb_notifier;
 #endif
+	u8 raw_data_report_code;
+	s16 *raw_data_buffer;
+	struct completion raw_data_completion;
 
 #if defined(USE_DRM_BRIDGE)
 	struct drm_bridge panel_bridge;

@@ -631,6 +631,7 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 	unsigned char code = 0;
 	struct syna_tcm *tcm = data;
 	struct syna_hw_attn_data *attn = &tcm->hw_if->bdata_attn;
+	struct tcm_dev *tcm_dev = tcm->tcm_dev;
 
 	/* It is possible that interrupts were disabled while the handler is
 	 * executing, before acquiring the mutex. If so, simply return.
@@ -682,6 +683,25 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 		}
 		/* forward the touch event to system */
 		syna_dev_report_input_events(tcm);
+	} else if (code == tcm->raw_data_report_code) {
+		if (!tcm->raw_data_buffer) {
+			tcm->raw_data_buffer = kmalloc(
+					       sizeof(u16) * (tcm_dev->rows * tcm_dev->cols +
+							      tcm_dev->rows + tcm_dev->cols),
+					       GFP_KERNEL);
+			if (!tcm->raw_data_buffer) {
+				LOGE("Allocate raw_data_buffer failed\n");
+				goto exit;
+			}
+		}
+		if (tcm->event_data.data_length == sizeof(u16) * (tcm_dev->rows * tcm_dev->cols +
+								  tcm_dev->rows + tcm_dev->cols)) {
+			memcpy(tcm->raw_data_buffer, tcm->event_data.buf,
+			       tcm->event_data.data_length);
+			complete_all(&tcm->raw_data_completion);
+		} else {
+			LOGE("Raw data length: %d is incorrect.\n", tcm->event_data.data_length);
+		}
 	}
 
 exit:
@@ -1810,6 +1830,10 @@ static int syna_dev_probe(struct platform_device *pdev)
 	}
 #endif
 
+	tcm->raw_data_report_code = 0;
+	init_completion(&tcm->raw_data_completion);
+	complete_all(&tcm->raw_data_completion);
+
 #ifdef HAS_SYSFS_INTERFACE
 	/* create the device file and register to char device classes */
 	retval = syna_cdev_create_sysfs(tcm, pdev);
@@ -1892,6 +1916,9 @@ static int syna_dev_remove(struct platform_device *pdev)
 		LOGW("Invalid handle to remove\n");
 		return 0;
 	}
+
+	if (tcm->raw_data_buffer)
+		kfree(tcm->raw_data_buffer);
 
 #if defined(USE_DRM_BRIDGE)
 	syna_unregister_panel_bridge(&tcm->panel_bridge);

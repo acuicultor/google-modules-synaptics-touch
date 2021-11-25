@@ -702,7 +702,146 @@ exit:
 static struct kobj_attribute kobj_attr_force_active =
 	__ATTR(force_active, 0220, NULL, syna_sysfs_force_active_store);
 
+/**
+ * syna_sysfs_get_raw_data_show()
+ *
+ * Attribute to show the rawdata.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [out] buf:  string buffer shown on console
+ *
+ * @return
+ *    on success, number of characters being output;
+ *    otherwise, negative value on error.
+ */
+static ssize_t syna_sysfs_get_raw_data_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	int retval;
+	unsigned int count = 0;
+	struct device *p_dev;
+	struct kobject *p_kobj;
+	struct syna_tcm *tcm;
+	struct tcm_dev *tcm_dev;
+	int i, j;
 
+	p_kobj = g_sysfs_dir->parent;
+	p_dev = container_of(p_kobj, struct device, kobj);
+	tcm = dev_get_drvdata(p_dev);
+	tcm_dev = tcm->tcm_dev;
+
+	syna_pal_mutex_lock(&g_extif_mutex);
+
+	if (wait_for_completion_timeout(&tcm->raw_data_completion,
+					msecs_to_jiffies(500)) == 0) {
+		complete_all(&tcm->raw_data_completion);
+		retval = scnprintf(buf + count, PAGE_SIZE - count, "Timeout\n");
+		goto exit;
+	}
+
+	/* Mutual raw. */
+	count += scnprintf(buf + count, PAGE_SIZE - count, "Mutual\n");
+	for (i = 0; i < tcm_dev->rows; i++) {
+		for (j = 0; j < tcm_dev->cols; j++) {
+			count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+					   tcm->raw_data_buffer[i * tcm_dev->cols + j]);
+		}
+		count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+	}
+
+	/* Self raw. */
+	count += scnprintf(buf + count, PAGE_SIZE - count, "Self\n");
+	for (i = 0; i < tcm_dev->cols; i++) {
+		count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+				   tcm->raw_data_buffer[tcm_dev->cols * tcm_dev->rows + i]);
+	}
+	count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+
+	for (j = 0; j < tcm_dev->rows; j++) {
+		count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+				   tcm->raw_data_buffer[tcm_dev->cols * tcm_dev->rows + i + j]);
+	}
+	count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+
+	retval = count;
+
+	LOGI("Got raw data, report code %#x\n", tcm->raw_data_report_code);
+
+exit:
+	syna_tcm_set_dynamic_config(tcm->tcm_dev, DC_DISABLE_DOZE, 0, RESP_IN_ATTN);
+	syna_tcm_enable_report(tcm_dev, tcm->raw_data_report_code, false);
+	syna_pal_mutex_unlock(&g_extif_mutex);
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, false);
+	return retval;
+}
+
+/**
+ * syna_sysfs_get_raw_data_store()
+ *
+ * Attribute to enable the rawdata report type.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [ in] buf:   string buffer input
+ *    [ in] count: size of buffer input
+ *
+ * @return
+ *    on success, return count; otherwise, return error code
+ */
+static ssize_t syna_sysfs_get_raw_data_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	int retval = count;
+	unsigned char input;
+	unsigned char report_code;
+	struct device *p_dev;
+	struct kobject *p_kobj;
+	struct syna_tcm *tcm;
+
+	p_kobj = g_sysfs_dir->parent;
+	p_dev = container_of(p_kobj, struct device, kobj);
+	tcm = dev_get_drvdata(p_dev);
+
+	if (kstrtou8(buf, 16, &input))
+		return -EINVAL;
+
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, true);
+	syna_pal_mutex_lock(&g_extif_mutex);
+
+	switch (input) {
+	case REPORT_DELTA:
+		report_code = REPORT_DELTA;
+		break;
+	case REPORT_RAW:
+		report_code = REPORT_RAW;
+		break;
+	case REPORT_BASELINE:
+		report_code = REPORT_BASELINE;
+		break;
+	default:
+		LOGE("Invalid input %#x.\n", input);
+		retval = -EINVAL;
+		goto exit;
+	}
+
+	LOGI("Enable raw data, report code %#x\n", report_code);
+
+	syna_tcm_set_dynamic_config(tcm->tcm_dev, DC_DISABLE_DOZE, 1, RESP_IN_ATTN);
+
+	tcm->raw_data_report_code = report_code;
+	syna_tcm_enable_report(tcm->tcm_dev, report_code, true);
+	reinit_completion(&tcm->raw_data_completion);
+
+exit:
+	syna_pal_mutex_unlock(&g_extif_mutex);
+	return retval;
+}
+
+static struct kobj_attribute kobj_attr_get_raw_data =
+	__ATTR(get_raw_data, 0664, syna_sysfs_get_raw_data_show, syna_sysfs_get_raw_data_store);
 
 /**
  * declaration of sysfs attributes
@@ -713,6 +852,7 @@ static struct attribute *attrs[] = {
 	&kobj_attr_reset.attr,
 	&kobj_attr_scan_mode.attr,
 	&kobj_attr_force_active.attr,
+	&kobj_attr_get_raw_data.attr,
 	NULL,
 };
 
