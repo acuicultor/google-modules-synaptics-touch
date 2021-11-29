@@ -68,115 +68,6 @@ static int syna_tcm_v2_execute_cmd_request(struct tcm_dev *tcm_dev,
 		unsigned int payload_length);
 
 /**
- * @section: Lookup table for checksum calculation
- *
- * @subsection: crc6_table
- *              lookup table for crc6 calculation
- *
- * @subsection: crc16_table
- *              lookup table for crc16 calculation
- */
-static unsigned short crc6_table[16] = {
-	   0,  268,  536,  788, 1072, 1340, 1576, 1828,
-	2144, 2412, 2680, 2932, 3152, 3420, 3656, 3908
-};
-
-static unsigned short crc16_table[256] = {
-	0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7,
-	0x8108, 0x9129, 0xA14A, 0xB16B, 0xC18C, 0xD1AD, 0xE1CE, 0xF1EF,
-	0x1231, 0x0210, 0x3273, 0x2252, 0x52B5, 0x4294, 0x72F7, 0x62D6,
-	0x9339, 0x8318, 0xB37B, 0xA35A, 0xD3BD, 0xC39C, 0xF3FF, 0xE3DE,
-	0x2462, 0x3443, 0x0420, 0x1401, 0x64E6, 0x74C7, 0x44A4, 0x5485,
-	0xA56A, 0xB54B, 0x8528, 0x9509, 0xE5EE, 0xF5CF, 0xC5AC, 0xD58D,
-	0x3653, 0x2672, 0x1611, 0x0630, 0x76D7, 0x66F6, 0x5695, 0x46B4,
-	0xB75B, 0xA77A, 0x9719, 0x8738, 0xF7DF, 0xE7FE, 0xD79D, 0xC7BC,
-	0x48C4, 0x58E5, 0x6886, 0x78A7, 0x0840, 0x1861, 0x2802, 0x3823,
-	0xC9CC, 0xD9ED, 0xE98E, 0xF9AF, 0x8948, 0x9969, 0xA90A, 0xB92B,
-	0x5AF5, 0x4AD4, 0x7AB7, 0x6A96, 0x1A71, 0x0A50, 0x3A33, 0x2A12,
-	0xDBFD, 0xCBDC, 0xFBBF, 0xEB9E, 0x9B79, 0x8B58, 0xBB3B, 0xAB1A,
-	0x6CA6, 0x7C87, 0x4CE4, 0x5CC5, 0x2C22, 0x3C03, 0x0C60, 0x1C41,
-	0xEDAE, 0xFD8F, 0xCDEC, 0xDDCD, 0xAD2A, 0xBD0B, 0x8D68, 0x9D49,
-	0x7E97, 0x6EB6, 0x5ED5, 0x4EF4, 0x3E13, 0x2E32, 0x1E51, 0x0E70,
-	0xFF9F, 0xEFBE, 0xDFDD, 0xCFFC, 0xBF1B, 0xAF3A, 0x9F59, 0x8F78,
-	0x9188, 0x81A9, 0xB1CA, 0xA1EB, 0xD10C, 0xC12D, 0xF14E, 0xE16F,
-	0x1080, 0x00A1, 0x30C2, 0x20E3, 0x5004, 0x4025, 0x7046, 0x6067,
-	0x83B9, 0x9398, 0xA3FB, 0xB3DA, 0xC33D, 0xD31C, 0xE37F, 0xF35E,
-	0x02B1, 0x1290, 0x22F3, 0x32D2, 0x4235, 0x5214, 0x6277, 0x7256,
-	0xB5EA, 0xA5CB, 0x95A8, 0x8589, 0xF56E, 0xE54F, 0xD52C, 0xC50D,
-	0x34E2, 0x24C3, 0x14A0, 0x0481, 0x7466, 0x6447, 0x5424, 0x4405,
-	0xA7DB, 0xB7FA, 0x8799, 0x97B8, 0xE75F, 0xF77E, 0xC71D, 0xD73C,
-	0x26D3, 0x36F2, 0x0691, 0x16B0, 0x6657, 0x7676, 0x4615, 0x5634,
-	0xD94C, 0xC96D, 0xF90E, 0xE92F, 0x99C8, 0x89E9, 0xB98A, 0xA9AB,
-	0x5844, 0x4865, 0x7806, 0x6827, 0x18C0, 0x08E1, 0x3882, 0x28A3,
-	0xCB7D, 0xDB5C, 0xEB3F, 0xFB1E, 0x8BF9, 0x9BD8, 0xABBB, 0xBB9A,
-	0x4A75, 0x5A54, 0x6A37, 0x7A16, 0x0AF1, 0x1AD0, 0x2AB3, 0x3A92,
-	0xFD2E, 0xED0F, 0xDD6C, 0xCD4D, 0xBDAA, 0xAD8B, 0x9DE8, 0x8DC9,
-	0x7C26, 0x6C07, 0x5C64, 0x4C45, 0x3CA2, 0x2C83, 0x1CE0, 0x0CC1,
-	0xEF1F, 0xFF3E, 0xCF5D, 0xDF7C, 0xAF9B, 0xBFBA, 0x8FD9, 0x9FF8,
-	0x6E17, 0x7E36, 0x4E55, 0x5E74, 0x2E93, 0x3EB2, 0x0ED1, 0x1EF0
-};
-
-/**
- * syna_tcm_v2_crc6()
- *
- * Calculate the crc-6 with polynomial for TouchCom v2 header.
- *
- * @param
- *    [ in] p:    byte array for the calculation
- *    [ in] bits: number of bits
- *
- * @return
- *    the crc-6 value
- */
-static unsigned char syna_tcm_v2_crc6(unsigned char *p, unsigned int bits)
-{
-	unsigned short r = 0x003F << 2;
-	unsigned short x;
-
-	for (; bits > 8; bits -= 8) {
-		r ^= *p++;
-		r = (r << 4) ^ crc6_table[r >> 4];
-		r = (r << 4) ^ crc6_table[r >> 4];
-	}
-
-	if (bits > 0) {
-		x = *p;
-		while (bits--) {
-			if (x & 0x80)
-				r ^= 0x80;
-
-			x <<= 1;
-			r <<= 1;
-			if (r & 0x100)
-				r ^= (0x03 << 2);
-		}
-	}
-
-	return (unsigned char)((r >> 2) & 0x3F);
-}
-/**
- * syna_tcm_v2_crc6()
- *
- * Calculate the crc-16 for TouchCom v2 packet.
- *
- * @param
- *    [ in] p:   byte array for the calculation
- *    [ in] len: length in bytes
- *
- * @return
- *    the crc-16 value
- */
-static unsigned short syna_tcm_v2_crc16(unsigned char *p, unsigned int len)
-{
-	unsigned short r = 0xFFFF;
-
-	while (len--)
-		r = (r << 8) ^ crc16_table[(r >> 8) ^ *p++];
-
-	return r;
-}
-
-/**
  * syna_tcm_v2_set_max_read_size()
  *
  * Configure the max length for message reading.
@@ -379,6 +270,12 @@ static void syna_tcm_v2_dispatch_report(struct tcm_dev *tcm_dev)
 				syna_pal_completion_complete(cmd_completion);
 				goto exit;
 			}
+		} else {
+			/* invoke callback to handle unexpected reset if doesn't
+			 * result from command
+			 */
+			if (tcm_dev->cb_reset_occurrence)
+				tcm_dev->cb_reset_occurrence(tcm_dev->cbdata_reset);
 		}
 	}
 
@@ -517,6 +414,7 @@ static int syna_tcm_v2_read(struct tcm_dev *tcm_dev, unsigned int rd_length,
 	int max_rd_size;
 	int xfer_len;
 	unsigned char crc6 = 0;
+	unsigned short crc16 = 0xFFFF;
 	struct tcm_message_data_blob *tcm_msg = NULL;
 
 	if (!tcm_dev) {
@@ -558,7 +456,7 @@ static int syna_tcm_v2_read(struct tcm_dev *tcm_dev, unsigned int rd_length,
 	header = (struct tcm_v2_message_header *)tcm_msg->temp.buf;
 
 	/* check header crc always */
-	crc6 = syna_tcm_v2_crc6(header->data, BITS_IN_MESSAGE_HEADER);
+	crc6 = syna_tcm_crc6(header->data, BITS_IN_MESSAGE_HEADER);
 	if (crc6 != 0) {
 		LOGE("Invalid header crc: 0x%02x\n", (header->byte3 & 0x3f));
 
@@ -569,7 +467,8 @@ static int syna_tcm_v2_read(struct tcm_dev *tcm_dev, unsigned int rd_length,
 #ifdef CHECK_PACKET_CRC
 	/* check packet crc */
 	if (rd_length > 0) {
-		if (syna_tcm_v2_crc16(&tcm_msg->temp.buf[0], xfer_len) != 0) {
+		crc16 = syna_tcm_crc16(&tcm_msg->temp.buf[0], xfer_len, 0xFFFF);
+		if (crc16 != 0) {
 			LOGE("Invalid packet crc: %02x %02x\n",
 				tcm_msg->temp.buf[xfer_len - 2],
 				tcm_msg->temp.buf[xfer_len - 1]);
@@ -577,6 +476,9 @@ static int syna_tcm_v2_read(struct tcm_dev *tcm_dev, unsigned int rd_length,
 			tcm_msg->status_report_code = STATUS_PACKET_CORRUPTED;
 			goto exit;
 		}
+
+		tcm_msg->crc_bytes = tcm_msg->temp.buf[xfer_len - 2] +
+			(tcm_msg->temp.buf[xfer_len - 1] << 8);
 	}
 #endif
 
@@ -666,7 +568,7 @@ static int syna_tcm_v2_write(struct tcm_dev *tcm_dev, unsigned char command,
 	header->length[1] = (unsigned char)(payload_len >> 8);
 	header->byte3 = ((HOST_PRIMARY & 0x01) << 7);
 	header->byte3 |= ((tcm_msg->seq_toggle++ & 0x01) << 6);
-	header->byte3 |= syna_tcm_v2_crc6(header->data, bits);
+	header->byte3 |= syna_tcm_crc6(header->data, bits);
 
 	/* copy payload, if any */
 	if (payload_len) {
@@ -682,7 +584,7 @@ static int syna_tcm_v2_write(struct tcm_dev *tcm_dev, unsigned char command,
 		}
 
 		/* append packet crc */
-		crc16 = syna_tcm_v2_crc16(&tcm_msg->out.buf[0], size);
+		crc16 = syna_tcm_crc16(&tcm_msg->out.buf[0], size, 0xFFFF);
 		tcm_msg->out.buf[size] = (unsigned char)((crc16 >> 8) & 0xFF);
 		tcm_msg->out.buf[size + 1] = (unsigned char)(crc16 & 0xFF);
 	}
@@ -1154,6 +1056,8 @@ static int syna_tcm_v2_read_message(struct tcm_dev *tcm_dev,
 	if (status_report_code)
 		*status_report_code = STATUS_INVALID;
 
+	tcm_msg->crc_bytes = 0;
+
 	syna_pal_mutex_lock(rw_mutex);
 
 	/* request a command */
@@ -1422,7 +1326,7 @@ int syna_tcm_v2_detect(struct tcm_dev *tcm_dev, unsigned char *data,
 		return _EINVAL;
 	}
 
-	if (syna_tcm_v2_crc6(data, BITS_IN_MESSAGE_HEADER) != 0)
+	if (syna_tcm_crc6(data, BITS_IN_MESSAGE_HEADER) != 0)
 		return _ENODEV;
 
 	/* send an identify command to identify the device */
@@ -1440,6 +1344,9 @@ int syna_tcm_v2_detect(struct tcm_dev *tcm_dev, unsigned char *data,
 	/* expose the read / write operations */
 	tcm_dev->read_message = syna_tcm_v2_read_message;
 	tcm_dev->write_message = syna_tcm_v2_write_message;
+
+	tcm_dev->msg_data.has_crc = true;
+	tcm_dev->msg_data.crc_bytes = 0xffff;
 
 	return retval;
 }

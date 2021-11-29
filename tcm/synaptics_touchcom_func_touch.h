@@ -67,6 +67,7 @@ enum gesture_classification {
 	GESTURE_ID_NONE = 0,
 	GESTURE_ID_DOUBLE_TAP = 1,
 	GESTURE_ID_SWIPE = 2,
+	GESTURE_ID_ACTIVE_SINGLE_TAP = 6,
 	GESTURE_ID_ACTIVE_TAP_AND_HOLD = 7,
 };
 
@@ -194,7 +195,7 @@ int syna_tcm_get_touch_data(const unsigned char *report,
 		unsigned int bits, unsigned int *data);
 
 /**
- * syna_tcm_set_custom_touch_data_parsing_callback()
+ * syna_tcm_set_custom_touch_entity_callback()
  *
  * Set up callback function to handle custom touch data.
  *
@@ -209,11 +210,11 @@ int syna_tcm_get_touch_data(const unsigned char *report,
  * @return
  *    on success, 0 or positive value; otherwise, negative value on error.
  */
-int syna_tcm_set_custom_touch_data_parsing_callback(struct tcm_dev *tcm_dev,
-		tcm_touch_data_parse_callback_t p_cb, void *p_cbdata);
+int syna_tcm_set_custom_touch_entity_callback(struct tcm_dev *tcm_dev,
+		tcm_custom_touch_entity_callback_t p_cb, void *p_cbdata);
 
 /**
- * syna_tcm_set_custom_gesture_parsing_callback()
+ * syna_tcm_set_custom_gesture_callback()
  *
  * Set up callback function to handle the gesture data defined as the following
  * code entities
@@ -228,8 +229,8 @@ int syna_tcm_set_custom_touch_data_parsing_callback(struct tcm_dev *tcm_dev,
  * @return
  *    on success, 0 or positive value; otherwise, negative value on error.
  */
-int syna_tcm_set_custom_gesture_parsing_callback(struct tcm_dev *tcm_dev,
-		tcm_gesture_parse_callback_t p_cb, void *p_cbdata);
+int syna_tcm_set_custom_gesture_callback(struct tcm_dev *tcm_dev,
+		tcm_custom_gesture_callback_t p_cb, void *p_cbdata);
 
 
 #endif /* end of _SYNAPTICS_TOUCHCOM_TOUCH_FUNCS_H_ */

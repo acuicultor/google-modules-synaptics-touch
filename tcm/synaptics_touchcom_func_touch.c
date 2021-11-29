@@ -166,6 +166,7 @@ static int syna_tcm_get_gesture_data(const unsigned char *report,
 	switch (gesture_id) {
 	case GESTURE_ID_DOUBLE_TAP:
 	case GESTURE_ID_ACTIVE_TAP_AND_HOLD:
+	case GESTURE_ID_ACTIVE_SINGLE_TAP:
 		LOGD("Tap info: (%d, %d)\n",
 			syna_pal_le2_to_uint(gesture_data->tap_x),
 			syna_pal_le2_to_uint(gesture_data->tap_y));
@@ -455,11 +456,11 @@ int syna_tcm_parse_touch_report(struct tcm_dev *tcm_dev,
 			offset += bits;
 			break;
 		case TOUCH_REPORT_GESTURE_ID:
-			if (tcm_dev->custom_gesture_parse_func) {
-				retval = tcm_dev->custom_gesture_parse_func(
+			if (tcm_dev->cb_custom_gesture) {
+				retval = tcm_dev->cb_custom_gesture(
 					TOUCH_REPORT_GESTURE_ID, config_data,
 					&idx, report, &offset, report_size,
-					tcm_dev->cbdata_gesture_parse);
+					tcm_dev->cbdata_gesture);
 			} else {
 				bits = config_data[idx++];
 				retval = syna_tcm_get_touch_data(report,
@@ -473,11 +474,11 @@ int syna_tcm_parse_touch_report(struct tcm_dev *tcm_dev,
 			}
 			break;
 		case TOUCH_REPORT_GESTURE_DATA:
-			if (tcm_dev->custom_gesture_parse_func) {
-				retval = tcm_dev->custom_gesture_parse_func(
+			if (tcm_dev->cb_custom_gesture) {
+				retval = tcm_dev->cb_custom_gesture(
 					TOUCH_REPORT_GESTURE_DATA, config_data,
 					&idx, report, &offset, report_size,
-					tcm_dev->cbdata_gesture_parse);
+					tcm_dev->cbdata_gesture);
 			} else {
 				bits = config_data[idx++];
 				retval = syna_tcm_get_gesture_data(report,
@@ -626,11 +627,11 @@ int syna_tcm_parse_touch_report(struct tcm_dev *tcm_dev,
 			break;
 		default:
 			/* use custom parsing method, if registered */
-			if (tcm_dev->custom_touch_data_parse_func) {
-				retval = tcm_dev->custom_touch_data_parse_func(
+			if (tcm_dev->cb_custom_touch_entity) {
+				retval = tcm_dev->cb_custom_touch_entity(
 					code, config_data, &idx, report,
 					&offset, report_size,
-					tcm_dev->cbdata_touch_data_parse);
+					tcm_dev->cbdata_touch_entity);
 				if (retval >= 0)
 					continue;
 			}
@@ -812,7 +813,7 @@ exit:
 }
 
 /**
- * syna_tcm_set_custom_touch_data_parsing_callback()
+ * syna_tcm_set_custom_touch_entity_callback()
  *
  * Set up callback function to handle custom touch data.
  *
@@ -822,21 +823,21 @@ exit:
  * @param
  *    [ in] tcm_dev:  the device handle
  *    [ in] p_cb:     the callback function pointer
- *    [ in] p_cbdata: pointer to caller data passed to callback function
+ *    [ in] p_cbdata: pointer to caller data
  *
  * @return
  *    on success, 0 or positive value; otherwise, negative value on error.
  */
-int syna_tcm_set_custom_touch_data_parsing_callback(struct tcm_dev *tcm_dev,
-		tcm_touch_data_parse_callback_t p_cb, void *p_cbdata)
+int syna_tcm_set_custom_touch_entity_callback(struct tcm_dev *tcm_dev,
+		tcm_custom_touch_entity_callback_t p_cb, void *p_cbdata)
 {
 	if (!tcm_dev) {
 		LOGE("Invalid tcm device handle\n");
 		return _EINVAL;
 	}
 
-	tcm_dev->custom_touch_data_parse_func = p_cb;
-	tcm_dev->cbdata_touch_data_parse = p_cbdata;
+	tcm_dev->cb_custom_touch_entity = p_cb;
+	tcm_dev->cbdata_touch_entity = p_cbdata;
 
 	LOGI("enabled\n");
 
@@ -844,10 +845,10 @@ int syna_tcm_set_custom_touch_data_parsing_callback(struct tcm_dev *tcm_dev,
 }
 
 /**
- * syna_tcm_set_custom_gesture_parsing_callback()
+ * syna_tcm_set_custom_gesture_callback()
  *
- * Set up callback function to handle the gesture data defined as the following
- * code entities
+ * Set up callback function to handle the gesture data defined as the
+ * following code entities
  *        - TOUCH_REPORT_GESTURE_ID
  *        - TOUCH_REPORT_GESTURE_DATA
  *
@@ -859,16 +860,16 @@ int syna_tcm_set_custom_touch_data_parsing_callback(struct tcm_dev *tcm_dev,
  * @return
  *    on success, 0 or positive value; otherwise, negative value on error.
  */
-int syna_tcm_set_custom_gesture_parsing_callback(struct tcm_dev *tcm_dev,
-		tcm_gesture_parse_callback_t p_cb, void *p_cbdata)
+int syna_tcm_set_custom_gesture_callback(struct tcm_dev *tcm_dev,
+		tcm_custom_gesture_callback_t p_cb, void *p_cbdata)
 {
 	if (!tcm_dev) {
 		LOGE("Invalid tcm device handle\n");
 		return _EINVAL;
 	}
 
-	tcm_dev->custom_gesture_parse_func = p_cb;
-	tcm_dev->cbdata_gesture_parse = p_cbdata;
+	tcm_dev->cb_custom_gesture = p_cb;
+	tcm_dev->cbdata_gesture = p_cbdata;
 
 	LOGI("enabled\n");
 

@@ -104,7 +104,68 @@ static unsigned char custom_touch_format[] = {
 #endif
 
 
+#if defined(ENABLE_HELPER)
+/**
+ * syna_dev_reset_detected_cb()
+ *
+ * Callback to assign a task to helper thread.
+ *
+ * Please be noted that this function will be invoked in ISR so don't
+ * issue another touchcomm command here.
+ *
+ * @param
+ *    [ in] callback_data: pointer to caller data
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
+ */
+static void syna_dev_reset_detected_cb(void *callback_data)
+{
+	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
 
+	if (!tcm->helper.workqueue) {
+		LOGW("No helper thread created\n");
+		return;
+	}
+
+	if (ATOMIC_GET(tcm->helper.task) == HELP_NONE) {
+		ATOMIC_SET(tcm->helper.task, HELP_RESET_DETECTED);
+
+		queue_work(tcm->helper.workqueue, &tcm->helper.work);
+	}
+}
+/**
+ * syna_dev_helper_work()
+ *
+ * According to the given task, perform the delayed work
+ *
+ * @param
+ *    [ in] work: data for work used
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static void syna_dev_helper_work(struct work_struct *work)
+{
+	unsigned char task;
+	struct syna_tcm_helper *helper =
+			container_of(work, struct syna_tcm_helper, work);
+	struct syna_tcm *tcm =
+			container_of(helper, struct syna_tcm, helper);
+
+	task = ATOMIC_GET(helper->task);
+
+	switch (task) {
+	case HELP_RESET_DETECTED:
+		LOGI("Reset caught, device mode 0x%x\n", tcm->tcm_dev->dev_mode);
+		break;
+	default:
+		break;
+	}
+
+	ATOMIC_SET(helper->task, HELP_NONE);
+}
+#endif
 /**
  * syna_dev_enable_lowpwr_gesture()
  *
@@ -174,10 +235,14 @@ static int syna_dev_enable_lowpwr_gesture(struct syna_tcm *tcm, bool en)
 
 #ifdef ENABLE_CUSTOM_TOUCH_ENTITY
 /**
- * @section: Callback function used for custom entity parsing in touch report
+ * syna_dev_parse_custom_touch_data_cb()
  *
- * Allow to parse the custom "newly" entity in the touch report.
- * Please note that this function will be invoked in ISR
+ * Callback to parse the custom or non-standard touch entity from the
+ * touch report.
+ *
+ * Please be noted that this function will be invoked in ISR so don't
+ * issue another touchcomm command here.
+ * If really needed, please assign a task to helper thread.
  *
  * @param
  *    [ in]    code:          the code of current touch entity
@@ -193,14 +258,14 @@ static int syna_dev_enable_lowpwr_gesture(struct syna_tcm *tcm, bool en)
  * @return
  *    on success, 0 or positive value; otherwise, negative value on error.
  */
-static int syna_dev_parse_custom_touch_report(const unsigned char code,
+static int syna_dev_parse_custom_touch_data_cb(const unsigned char code,
 		const unsigned char *config, unsigned int *config_offset,
 		const unsigned char *report, unsigned int *report_offset,
 		unsigned int report_size, void *callback_data)
 {
 	/**
-	 * sample code to demonstrate how to parse the custom entity
-	 *  from the report, additional modifications must be beeded.
+	 * sample code to demonstrate how to parse the custom touch entity
+	 * from the touch report, additional modifications will be needed.
 	 *
 	 * struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
 	 * unsigned int data;
@@ -226,6 +291,60 @@ static int syna_dev_parse_custom_touch_report(const unsigned char code,
 }
 #endif
 
+#if defined(ENABLE_WAKEUP_GESTURE)
+/**
+ * syna_dev_parse_custom_gesture_cb()
+ *
+ * Callback to parse the custom or non-standard gesture data from the
+ * touch report.
+ *
+ * Please be noted that this function will be invoked in ISR so don't
+ * issue another touchcomm command here.
+ * If really needed, please assign a task to helper thread.
+ *
+ * @param
+ *    [ in]    code:          the code of current touch entity
+ *    [ in]    config:        the report configuration stored
+ *    [in/out] config_offset: offset of current position in report config,
+ *                            the updated position should be returned.
+ *    [ in]    report:        touch report given
+ *    [in/out] report_offset: offset of current position in touch report,
+ *                            the updated position should be returned.
+ *    [ in]    report_size:   size of given touch report
+ *    [ in]    callback_data: pointer to caller data
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
+ */
+static int syna_dev_parse_custom_gesture_cb(const unsigned char code,
+		const unsigned char *config, unsigned int *config_offset,
+		const unsigned char *report, unsigned int *report_offset,
+		unsigned int report_size, void *callback_data)
+{
+	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
+	unsigned int data;
+	unsigned int bits;
+
+	bits = config[(*config_offset)++];
+	syna_tcm_get_touch_data(report, report_size, *report_offset, bits, &data);
+
+	switch (data) {
+	case GESTURE_SINGLE_TAP:
+		LOGI("Gesture single tap detected\n");
+		break;
+	case GESTURE_LONG_PRESS:
+		LOGI("Gesture long press detected\n");
+		break;
+	default:
+		LOGW("Unknown gesture id %d\n", data);
+		break;
+	}
+
+	report_offset += bits;
+
+	return bits;
+}
+#endif
 /**
  * syna_tcm_free_input_events()
  *
@@ -630,6 +749,7 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 	int retval;
 	unsigned char code = 0;
 	struct syna_tcm *tcm = data;
+	struct custom_fw_status *status;
 	struct syna_hw_attn_data *attn = &tcm->hw_if->bdata_attn;
 	struct tcm_dev *tcm_dev = tcm->tcm_dev;
 
@@ -713,6 +833,15 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 		 */
 		LOGD("Heat map data received, size:%d\n",
 			tcm->event_data.data_length);
+		break;
+	case REPORT_FW_STATUS:
+		/* for 'fw status' ($c2) report,
+		 * report size shall be 2-byte only; the
+		 */
+		status = (struct custom_fw_status *)&tcm->event_data.buf[0];
+		LOGI("Status: moisture:%d noise:%d freq-change:%d, grip:%d, palm:%d\n",
+			status->b0_moisture, status->b1_noise_state,
+			status->b2_freq_hopping, status->b3_grip, status->b4_palm);
 		break;
 	default:
 		break;
@@ -879,11 +1008,21 @@ static int syna_dev_set_up_app_fw(struct syna_tcm *tcm)
 
 #ifdef ENABLE_CUSTOM_TOUCH_ENTITY
 	/* set up custom touch data parsing method */
-	retval = syna_tcm_set_custom_touch_data_parsing_callback(tcm_dev,
-			syna_dev_parse_custom_touch_report,
+	retval = syna_tcm_set_custom_touch_entity_callback(tcm_dev,
+			syna_dev_parse_custom_touch_data_cb,
 			(void *)tcm);
 	if (retval < 0) {
 		LOGE("Fail to set up custom touch data parsing method\n");
+		return -EIO;
+	}
+#endif
+#ifdef ENABLE_WAKEUP_GESTURE
+	/* set up custom gesture parsing method */
+	retval = syna_tcm_set_custom_gesture_callback(tcm_dev,
+			syna_dev_parse_custom_gesture_cb,
+			(void *)tcm);
+	if (retval < 0) {
+		LOGE("Fail to set up custom gesture parsing method\n");
 		return -EIO;
 	}
 #endif
@@ -966,7 +1105,9 @@ static void syna_dev_reflash_startup_work(struct work_struct *work)
 		goto exit;
 	}
 
-	/* check and re-create the input device if needed */
+	/* ensure the settings of input device
+	 * if needed, re-create a new input device
+	 */
 	retval = syna_dev_set_up_input_device(tcm);
 	if (retval < 0) {
 		LOGE("Fail to register input device\n");
@@ -1010,8 +1151,6 @@ static int syna_dev_enter_normal_sensing(struct syna_tcm *tcm)
 			return retval;
 		}
 	}
-
-	tcm->pwr_state = PWR_ON;
 
 	return 0;
 }
@@ -1138,6 +1277,8 @@ static int syna_dev_resume(struct device *dev)
 		goto exit;
 	}
 #endif /* end of RESET_ON_RESUME */
+
+	tcm->pwr_state = PWR_ON;
 
 	LOGI("Prepare to set up application firmware\n");
 
@@ -1644,18 +1785,21 @@ static int syna_dev_connect(struct syna_tcm *tcm)
 #ifdef FORCE_CONNECTION
 			LOGW("App firmware is not available yet\n");
 			LOGW("However, connect and skip initialization\n");
-			goto end;
 #else
 			LOGE("Fail to set up application firmware\n");
-			goto err_setup_app_fw;
+			/* switch to bootloader mode when failed */
+			LOGI("Switch device to bootloader mode instead\n");
+			syna_tcm_switch_fw_mode(tcm_dev,
+					MODE_BOOTLOADER,
+					FW_MODE_SWITCH_DELAY_MS);
 #endif
-		}
-
-		/* allocate and register to input device subsystem */
-		retval = syna_dev_set_up_input_device(tcm);
-		if (retval < 0) {
-			LOGE("Fail to set up input device\n");
-			goto err_setup_input_dev;
+		} else {
+			/* allocate and register to input device subsystem */
+			retval = syna_dev_set_up_input_device(tcm);
+			if (retval < 0) {
+				LOGE("Fail to set up input device\n");
+				goto err_setup_input_dev;
+			}
 		}
 
 		break;
@@ -1682,9 +1826,7 @@ static int syna_dev_connect(struct syna_tcm *tcm)
 	queue_delayed_work(tcm->reflash_workqueue, &tcm->reflash_work,
 			msecs_to_jiffies(STARTUP_REFLASH_DELAY_TIME_MS));
 #endif
-#ifdef FORCE_CONNECTION
-end:
-#endif
+
 	tcm->pwr_state = PWR_ON;
 	tcm->is_connected = true;
 	tcm->bus_refmask = SYNA_BUS_REF_SCREEN_ON;
@@ -1703,10 +1845,6 @@ err_request_irq:
 	syna_dev_release_input_device(tcm);
 
 err_setup_input_dev:
-#ifdef FORCE_CONNECTION
-#else
-err_setup_app_fw:
-#endif
 err_detect_dev:
 	if (hw_if->ops_power_on)
 		hw_if->ops_power_on(hw_if, false);
@@ -1811,8 +1949,8 @@ static int syna_dev_probe(struct platform_device *pdev)
 	tcm->dev_connect = syna_dev_connect;
 	tcm->dev_disconnect = syna_dev_disconnect;
 	tcm->dev_set_up_app_fw = syna_dev_set_up_app_fw;
-	tcm->dev_set_normal_sensing = syna_dev_enter_normal_sensing;
-	tcm->dev_set_lowpwr_sensing = syna_dev_enter_lowpwr_sensing;
+	tcm->dev_resume = syna_dev_resume;
+	tcm->dev_suspend = syna_dev_suspend;
 
 	platform_set_drvdata(pdev, tcm);
 
@@ -1884,6 +2022,17 @@ static int syna_dev_probe(struct platform_device *pdev)
 #endif
 #endif
 
+#if defined(ENABLE_HELPER)
+	ATOMIC_SET(tcm->helper.task, HELP_NONE);
+	tcm->helper.workqueue =
+			create_singlethread_workqueue("synaptics_tcm_helper");
+	INIT_WORK(&tcm->helper.work, syna_dev_helper_work);
+	/* set up custom touch data parsing method */
+	syna_tcm_set_reset_occurrence_callback(tcm_dev,
+			syna_dev_reset_detected_cb,
+			(void *)tcm);
+#endif
+
 	LOGI("%s TouchComm driver v%d.%s installed\n",
 		PLATFORM_DRIVER_NAME,
 		SYNAPTICS_TCM_DRIVER_VERSION,
@@ -1929,6 +2078,11 @@ static int syna_dev_remove(struct platform_device *pdev)
 		LOGW("Invalid handle to remove\n");
 		return 0;
 	}
+#if defined(ENABLE_HELPER)
+	cancel_work_sync(&tcm->helper.work);
+	flush_workqueue(tcm->helper.workqueue);
+	destroy_workqueue(tcm->helper.workqueue);
+#endif
 
 	if (tcm->raw_data_buffer)
 		kfree(tcm->raw_data_buffer);

@@ -1636,7 +1636,7 @@ exit:
  */
 int syna_tcm_send_command(struct tcm_dev *tcm_dev,
 			unsigned char command, unsigned char *payload,
-			unsigned int payload_length, unsigned char *resp_code,
+			unsigned int payload_length, unsigned char *code,
 			struct tcm_buffer *resp, unsigned int delay_ms_resp)
 {
 	int retval = 0;
@@ -1646,7 +1646,7 @@ int syna_tcm_send_command(struct tcm_dev *tcm_dev,
 		return _EINVAL;
 	}
 
-	if (!resp_code) {
+	if (!code) {
 		LOGE("Invalid parameter\n");
 		return _EINVAL;
 	}
@@ -1655,21 +1655,49 @@ int syna_tcm_send_command(struct tcm_dev *tcm_dev,
 			command,
 			payload,
 			payload_length,
-			resp_code,
+			code,
 			delay_ms_resp);
-	if (retval < 0) {
-		LOGE("Fail to send command 0x%02x\n",
-			command);
-		goto exit;
-	}
 
-	/* response data returned */
-	if ((resp != NULL) && (tcm_dev->resp_buf.data_length > 0)) {
-		retval = syna_tcm_buf_copy(resp, &tcm_dev->resp_buf);
-		if (retval < 0) {
-			LOGE("Fail to copy resp data\n");
+	LOGD("Status code returned: 0x%02x\n", *code);
+
+	/* exit if no buffer provided */
+	if (!resp)
+		goto exit;
+
+	/* if gathering a report, copy to the user buffer */
+	if ((*code >= REPORT_IDENTIFY) && (*code != STATUS_INVALID)) {
+		if (tcm_dev->report_buf.data_length == 0)
+			goto exit;
+
+		syna_tcm_buf_lock(&tcm_dev->report_buf);
+
+		if (syna_tcm_buf_copy(resp, &tcm_dev->report_buf) < 0) {
+			LOGE("Fail to copy data, report type: %x\n",
+				*code);
+			syna_tcm_buf_unlock(&tcm_dev->report_buf);
+			retval = _ENOMEM;
 			goto exit;
 		}
+
+		syna_tcm_buf_unlock(&tcm_dev->report_buf);
+	}
+
+	/* if gathering a response, copy to the user buffer */
+	if ((*code > STATUS_IDLE) && (*code <= STATUS_ERROR)) {
+		if (tcm_dev->resp_buf.data_length == 0)
+			goto exit;
+
+		syna_tcm_buf_lock(&tcm_dev->resp_buf);
+
+		if (syna_tcm_buf_copy(resp, &tcm_dev->resp_buf) < 0) {
+			LOGE("Fail to copy resp data, status code: %x\n",
+				*code);
+			syna_tcm_buf_unlock(&tcm_dev->resp_buf);
+			retval = _ENOMEM;
+			goto exit;
+		}
+
+		syna_tcm_buf_unlock(&tcm_dev->resp_buf);
 	}
 
 exit:
@@ -1701,6 +1729,56 @@ int syna_tcm_enable_predict_reading(struct tcm_dev *tcm_dev, bool en)
 
 	LOGI("Predicted reading is %s\n",
 		(en) ? "enabled":"disabled");
+
+	return 0;
+}
+
+/**
+ * syna_tcm_get_message_crc()
+ *
+ * this function is used to return the crc of message retrieved previously
+ *
+ * @param
+ *    [ in] tcm_dev: the device handle
+ *
+ * @return
+ *    2 bytes crc value
+ */
+unsigned short syna_tcm_get_message_crc(struct tcm_dev *tcm_dev)
+{
+	if (!tcm_dev) {
+		LOGE("Invalid tcm device handle\n");
+		return _EINVAL;
+	}
+
+	return tcm_dev->msg_data.crc_bytes;
+}
+
+/**
+ * syna_tcm_set_reset_occurrence_callback()
+ *
+ * Set up callback function once an unexpected reset received
+ *
+ * @param
+ *    [ in] tcm_dev:  the device handle
+ *    [ in] p_cb:     the pointer of callback function
+ *    [ in] p_cbdata: pointer to caller data
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
+ */
+int syna_tcm_set_reset_occurrence_callback(struct tcm_dev *tcm_dev,
+		tcm_reset_occurrence_callback_t p_cb, void *p_cbdata)
+{
+	if (!tcm_dev) {
+		LOGE("Invalid tcm device handle\n");
+		return _EINVAL;
+	}
+
+	tcm_dev->cb_reset_occurrence = p_cb;
+	tcm_dev->cbdata_reset = p_cbdata;
+
+	LOGI("enabled\n");
 
 	return 0;
 }

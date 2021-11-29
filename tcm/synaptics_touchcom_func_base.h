@@ -428,6 +428,33 @@ int syna_tcm_send_command(struct tcm_dev *tcm_dev,
  *    on success, 0 or positive value; otherwise, negative value on error.
  */
 int syna_tcm_enable_predict_reading(struct tcm_dev *tcm_dev, bool en);
+/**
+ * syna_tcm_get_message_crc()
+ *
+ * this function is used to return the crc of message retrieved previously
+ *
+ * @param
+ *    [ in] tcm_dev: the device handle
+ *
+ * @return
+ *    2 bytes crc value
+ */
+unsigned short syna_tcm_get_message_crc(struct tcm_dev *tcm_dev);
+/**
+ * syna_tcm_set_reset_occurrence_callback()
+ *
+ * Set up callback function once an unexpected reset received
+ *
+ * @param
+ *    [ in] tcm_dev:  the device handle
+ *    [ in] p_cb:     the pointer of callback function
+ *    [ in] p_cbdata: pointer to caller data
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
+ */
+int syna_tcm_set_reset_occurrence_callback(struct tcm_dev *tcm_dev,
+		tcm_reset_occurrence_callback_t p_cb, void *p_cbdata);
 
 
 #endif /* end of _SYNAPTICS_TOUCHCOM_BASE_FUNCS_H_ */

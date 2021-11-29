@@ -54,7 +54,7 @@
 
 #define SYNAPTICS_TCM_DRIVER_ID (1 << 0)
 #define SYNAPTICS_TCM_DRIVER_VERSION 1
-#define SYNAPTICS_TCM_DRIVER_SUBVER "2.2"
+#define SYNAPTICS_TCM_DRIVER_SUBVER "2.3"
 
 /**
  * @section: Driver Configurations
@@ -256,9 +256,17 @@
 /* #define ENABLE_CUSTOM_TOUCH_ENTITY */
 
 /**
- * @section: Power States
+ * @brief ENABLE_HELPER
+ *        Open if willing to do additional handling upon helper wokqueue
  *
- * The below structure enumerates the power states of device
+ *        Set "disable" in default
+ */
+/* #define ENABLE_HELPER */
+
+/**
+ * @brief: Power States
+ *
+ * Enumerate the power states of device
  */
 enum power_state {
 	PWR_OFF = 0,
@@ -278,12 +286,61 @@ enum {
 	SYNA_BUS_REF_BUGREPORT		= 0x0020,
 };
 
+#if defined(ENABLE_HELPER)
+/**
+ * @brief: Tasks for helper
+ *
+ * Tasks being supported in the helper thread and the structure
+ */
+enum helper_task {
+	HELP_NONE = 0,
+	HELP_RESET_DETECTED,
+};
+
+struct syna_tcm_helper {
+	syna_pal_atomic_t task;
+	struct work_struct work;
+	struct workqueue_struct *workqueue;
+};
+#endif
+
+/**
+ * @brief: Structure for $C2 report
+ *
+ * Enumerate the power states of device
+ */
+struct custom_fw_status {
+	union {
+		struct {
+			unsigned char b0_moisture:1;
+			unsigned char b1_noise_state:1;
+			unsigned char b2_freq_hopping:1;
+			unsigned char b3_grip:1;
+			unsigned char b4_palm:1;
+			unsigned char b5__7_reserved:3;
+			unsigned char reserved;
+		} __packed;
+		unsigned char data[2];
+	};
+};
+
 /**
  * @brief: Custom Commands, Reports, or Events
  */
 enum custom_report_type {
 	REPORT_HEAT_MAP = 0xc1,
+	REPORT_FW_STATUS = 0xc2,
 };
+
+#if defined(ENABLE_WAKEUP_GESTURE)
+/**
+ * @brief: Custom gesture type
+ */
+enum custom_gesture_type {
+	GESTURE_SINGLE_TAP = 6,
+	GESTURE_LONG_PRESS = 11,
+};
+#endif
 
 /**
  * @brief: context of the synaptics linux-based driver
@@ -376,11 +433,16 @@ struct syna_tcm {
 	bool is_panel_lp_mode;
 #endif
 
-	/* fifo to pass the report to userspace */
+	/* fifo to pass the data to userspace */
 	unsigned int fifo_remaining_frame;
 	struct list_head frame_fifo_queue;
 	wait_queue_head_t wait_frame;
 	unsigned char report_to_queue[REPORT_TYPES];
+
+#if defined(ENABLE_HELPER)
+	/* helper workqueue */
+	struct syna_tcm_helper helper;
+#endif
 
 	/* Specific function pointer to do device connection.
 	 *
@@ -421,25 +483,25 @@ struct syna_tcm {
 	 */
 	int (*dev_set_up_app_fw)(struct syna_tcm *tcm);
 
-	/* Specific function pointer to enter normal sensing mode
+	/* Specific function pointer to resume the device from suspend state.
 	 *
 	 * @param
-	 *    [ in] tcm: tcm driver handle
+	 *    [ in] dev: an instance of device
 	 *
 	 * @return
 	 *    on success, 0; otherwise, negative value on error.
 	 */
-	int (*dev_set_normal_sensing)(struct syna_tcm *tcm);
+	int (*dev_resume)(struct device *dev);
 
-	/* Specific function pointer to enter power-saved sensing mode.
+	/* Specific function pointer to put device into suspend state.
 	 *
 	 * @param
-	 *    [ in] tcm: tcm driver handle
+	 *    [ in] dev: an instance of device
 	 *
 	 * @return
 	 *    on success, 0; otherwise, negative value on error.
 	 */
-	int (*dev_set_lowpwr_sensing)(struct syna_tcm *tcm);
+	int (*dev_suspend)(struct device *dev);
 };
 
 /**

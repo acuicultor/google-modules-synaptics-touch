@@ -413,8 +413,7 @@ static ssize_t syna_sysfs_irq_en_store(struct kobject *kobj,
 
 	if (!tcm->is_connected) {
 		LOGW("Device is NOT connected\n");
-		retval = count;
-		goto exit;
+		return count;
 	}
 
 	syna_pal_mutex_lock(&g_extif_mutex);
@@ -434,6 +433,7 @@ static ssize_t syna_sysfs_irq_en_store(struct kobject *kobj,
 			goto exit;
 		}
 	} else {
+		LOGW("Unknown option %d (0:disable / 1:enable)\n", input);
 		retval = -EINVAL;
 		goto exit;
 	}
@@ -481,8 +481,7 @@ static ssize_t syna_sysfs_reset_store(struct kobject *kobj,
 
 	if (!tcm->is_connected) {
 		LOGW("Device is NOT connected\n");
-		retval = count;
-		goto exit;
+		return count;
 	}
 
 	syna_pal_mutex_lock(&g_extif_mutex);
@@ -496,11 +495,15 @@ static ssize_t syna_sysfs_reset_store(struct kobject *kobj,
 			goto exit;
 		}
 	} else if (input == 2) {
-		if (!tcm->hw_if->ops_hw_reset)
+		if (!tcm->hw_if->ops_hw_reset) {
+			LOGE("No hardware reset support\n");
 			goto exit;
+		}
 
 		tcm->hw_if->ops_hw_reset(tcm->hw_if);
 	} else {
+		LOGW("Unknown option %d (1:sw / 2:hw)\n", input);
+		retval = -EINVAL;
 		goto exit;
 	}
 

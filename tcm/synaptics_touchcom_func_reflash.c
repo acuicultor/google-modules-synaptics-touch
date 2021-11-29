@@ -219,7 +219,7 @@ int syna_tcm_compare_image_id_info(struct tcm_dev *tcm_dev,
 		device_fw_id, image_fw_id);
 
 	if (image_fw_id != device_fw_id) {
-		LOGN("Image build ID is different from device fw ID\n");
+		LOGN("Image build ID and device fw ID mismatched\n");
 		result = UPDATE_FIRMWARE_CONFIG;
 		goto exit;
 	}
