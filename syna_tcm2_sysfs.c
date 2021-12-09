@@ -735,25 +735,34 @@ static struct kobj_attribute kobj_attr_force_active =
 static ssize_t syna_sysfs_get_raw_data_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	int retval;
+	int retval = 0;
 	unsigned int count = 0;
 	struct device *p_dev;
 	struct kobject *p_kobj;
 	struct syna_tcm *tcm;
 	struct tcm_dev *tcm_dev;
-	int i, j;
+	int i, j, mutual_length;
+	bool is_signed;
 
 	p_kobj = g_sysfs_dir->parent;
 	p_dev = container_of(p_kobj, struct device, kobj);
 	tcm = dev_get_drvdata(p_dev);
 	tcm_dev = tcm->tcm_dev;
+	mutual_length = tcm_dev->cols * tcm_dev->rows;
+	is_signed = (tcm->raw_data_report_code == REPORT_DELTA);
 
 	syna_pal_mutex_lock(&g_extif_mutex);
 
 	if (wait_for_completion_timeout(&tcm->raw_data_completion,
 					msecs_to_jiffies(500)) == 0) {
 		complete_all(&tcm->raw_data_completion);
-		retval = scnprintf(buf + count, PAGE_SIZE - count, "Timeout\n");
+		count += scnprintf(buf + count, PAGE_SIZE - count, "Timeout\n");
+		goto exit;
+	}
+
+	if (!tcm->raw_data_buffer) {
+		count += scnprintf(buf + count, PAGE_SIZE - count,
+				   "Raw data buffer is NULL.\n");
 		goto exit;
 	}
 
@@ -761,8 +770,10 @@ static ssize_t syna_sysfs_get_raw_data_show(struct kobject *kobj,
 	count += scnprintf(buf + count, PAGE_SIZE - count, "Mutual\n");
 	for (i = 0; i < tcm_dev->rows; i++) {
 		for (j = 0; j < tcm_dev->cols; j++) {
-			count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
-					   tcm->raw_data_buffer[i * tcm_dev->cols + j]);
+			count += scnprintf(buf + count, PAGE_SIZE - count,
+				(is_signed) ? "%d " : "%u ",
+				(is_signed) ? tcm->raw_data_buffer[i * tcm_dev->cols + j] :
+					      (u16) (tcm->raw_data_buffer[i * tcm_dev->cols + j]));
 		}
 		count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
 	}
@@ -770,22 +781,25 @@ static ssize_t syna_sysfs_get_raw_data_show(struct kobject *kobj,
 	/* Self raw. */
 	count += scnprintf(buf + count, PAGE_SIZE - count, "Self\n");
 	for (i = 0; i < tcm_dev->cols; i++) {
-		count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
-				   tcm->raw_data_buffer[tcm_dev->cols * tcm_dev->rows + i]);
+		count += scnprintf(buf + count, PAGE_SIZE - count,
+			(is_signed) ? "%d " : "%u ",
+			(is_signed) ? tcm->raw_data_buffer[mutual_length + i] :
+				      (u16) (tcm->raw_data_buffer[mutual_length + i]));
 	}
 	count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
 
 	for (j = 0; j < tcm_dev->rows; j++) {
-		count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
-				   tcm->raw_data_buffer[tcm_dev->cols * tcm_dev->rows + i + j]);
+		count += scnprintf(buf + count, PAGE_SIZE - count,
+			(is_signed) ? "%d " : "%u ",
+			(is_signed) ? tcm->raw_data_buffer[mutual_length + i + j] :
+				      (u16) (tcm->raw_data_buffer[mutual_length + i + j]));
 	}
 	count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
-
-	retval = count;
 
 	LOGI("Got raw data, report code %#x\n", tcm->raw_data_report_code);
 
 exit:
+	retval = count;
 	syna_tcm_set_dynamic_config(tcm->tcm_dev, DC_DISABLE_DOZE, 0, RESP_IN_ATTN);
 	syna_tcm_enable_report(tcm_dev, tcm->raw_data_report_code, false);
 	syna_pal_mutex_unlock(&g_extif_mutex);
