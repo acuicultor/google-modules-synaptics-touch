@@ -44,6 +44,10 @@
 #include "synaptics_touchcom_core_dev.h"
 #include "synaptics_touchcom_func_touch.h"
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
+#include <touch_bus_negotiator.h>
+#endif
+
 #define PLATFORM_DRIVER_NAME "synaptics_tcm"
 
 #define TOUCH_INPUT_NAME "synaptics_tcm_touch"
@@ -432,6 +436,10 @@ struct syna_tcm {
 	struct drm_bridge panel_bridge;
 	struct drm_connector *connector;
 	bool is_panel_lp_mode;
+#endif
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
+	u32 tbn_register_mask;
 #endif
 
 	/* fifo to pass the data to userspace */
