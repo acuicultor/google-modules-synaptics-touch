@@ -178,7 +178,7 @@ static int syna_tcm_get_gesture_data(const unsigned char *report,
 			syna_pal_le2_to_uint(gesture_data->tap_y));
 		break;
 	default:
-		LOGW("Unknown gesture_id:%d\n", gesture_id);
+		LOGD("Unknown gesture_id:%d\n", gesture_id);
 		break;
 	}
 
@@ -437,10 +437,9 @@ int syna_tcm_parse_touch_report(struct tcm_dev *tcm_dev,
 			touch_data->num_of_active_objects = data;
 			offset += bits;
 			if (touch_data->num_of_active_objects == 0) {
-				if (end_of_foreach == 0) {
-					LOGE("Invalid end_foreach\n");
+				if (end_of_foreach == 0)
 					return 0;
-				}
+
 				idx = end_of_foreach;
 			}
 			break;

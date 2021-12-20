@@ -106,7 +106,7 @@ static bool syna_testing_compare_byte_vector(unsigned char *data,
  * syna_testing_compare_frame()
  *
  * Sample code to compare the test result with limits
- * by a lower-bound frame
+ * being formatted as a frame
  *
  * @param
  *    [ in] data: target test data
@@ -188,6 +188,112 @@ end_of_upper_bound_limit:
 			}
 			data_ptr++;
 		}
+	}
+
+end_of_lower_bound_limit:
+	return result;
+}
+
+/**
+ * syna_testing_compare_list()
+ *
+ * Sample code to compare the test result with limits
+ * being formatted as a list
+ *
+ * @param
+ *    [ in] data: target test data
+ *    [ in] data_size: size of test data
+ *    [ in] rows: the number of rows
+ *    [ in] cols: the number of column
+ *    [ in] limits_hi: upper-bound test limit
+ *    [ in] limits_lo: lower-bound test limit
+ *
+ * @return
+ *    on success, true; otherwise, return false
+ */
+static bool syna_testing_compare_list(unsigned char *data,
+		unsigned int data_size, int rows, int cols,
+		const int *limits_hi, const int *limits_lo)
+{
+	bool result = false;
+	int *data_ptr = NULL;
+	int limit;
+	int i;
+
+	if (!data || (data_size == 0)) {
+		LOGE("Invalid test data\n");
+		return false;
+	}
+
+	if (data_size % (rows + cols) != 0) {
+		LOGE("Size mismatched, data:%d (exppected:%d * N)\n",
+			data_size, (rows + cols));
+		result = false;
+		return false;
+	}
+
+	if (rows > LIMIT_BOUNDARY) {
+		LOGE("Rows mismatched, rows:%d (exppected:%d)\n",
+			rows, LIMIT_BOUNDARY);
+		result = false;
+		return false;
+	}
+
+	if (cols > LIMIT_BOUNDARY) {
+		LOGE("Columns mismatched, cols: %d (exppected:%d)\n",
+			cols, LIMIT_BOUNDARY);
+		result = false;
+		return false;
+	}
+
+	result = true;
+
+	if (!limits_hi)
+		goto end_of_upper_bound_limit;
+
+	data_ptr = (int *)&data[0];
+	for (i = 0; i < cols; i++) {
+		limit = limits_hi[i];
+		if (*data_ptr > limit) {
+			LOGE("Fail on cols-%2d=%5d, limits_hi:%4d\n",
+				i, *data_ptr, limit);
+			result = false;
+		}
+		data_ptr++;
+	}
+	for (i = 0; i < rows; i++) {
+		limit = limits_hi[LIMIT_BOUNDARY + i];
+		if (*data_ptr > limit) {
+			LOGE("Fail on row-%2d=%5d, limits_hi:%4d\n",
+				i, *data_ptr, limit);
+			result = false;
+		}
+		data_ptr++;
+	}
+
+end_of_upper_bound_limit:
+
+	if (!limits_lo)
+		goto end_of_lower_bound_limit;
+
+	data_ptr = (int *)&data[0];
+	for (i = 0; i < cols; i++) {
+		limit = limits_lo[i];
+		if (*data_ptr < limit) {
+			LOGE("Fail on cols-%2d=%5d, limits_lo:%4d\n",
+				i, *data_ptr, limit);
+			result = false;
+		}
+		data_ptr++;
+	}
+	for (i = 0; i < rows; i++) {
+		limit = limits_lo[LIMIT_BOUNDARY + i];
+		if (*data_ptr < limit) {
+			LOGE("Fail on row-%2d=%5d, limits_lo:%4d\n",
+				i, *data_ptr, limit);
+			result = false;
+		}
+		data_ptr++;
 	}
 
 end_of_lower_bound_limit:
@@ -827,6 +933,209 @@ exit:
 static struct kobj_attribute kobj_attr_pt11 =
 	__ATTR(pt11, 0444, syna_testing_pt11_show, NULL);
 
+/**
+ * syna_testing_pt12()
+ *
+ * Sample code to perform PT12 testing
+ *
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static int syna_testing_pt12(struct syna_tcm *tcm, struct tcm_buffer *test_data)
+{
+	int retval;
+	bool result = false;
+
+	LOGI("Start testing\n");
+
+	retval = syna_tcm_run_production_test(tcm->tcm_dev,
+			TEST_PID18_HYBRID_ABS_RAW,
+			test_data);
+	if (retval < 0) {
+		LOGE("Fail to run test %d\n", TEST_PID18_HYBRID_ABS_RAW);
+		result = false;
+		goto exit;
+	}
+
+	result = syna_testing_compare_list(test_data->buf,
+			test_data->data_length,
+			tcm->tcm_dev->rows,
+			tcm->tcm_dev->cols,
+			(const int *)&pt12_limits[0],
+			NULL);
+
+exit:
+	LOGI("Result = %s\n", (result)?"pass":"fail");
+
+	return ((result) ? 0 : -1);
+}
+
+/**
+ * syna_testing_pt12_show()
+ *
+ * Attribute to show the result of PT12 test to the console.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [out] buf:  string buffer shown on console
+ *
+ * @return
+ *    on success, number of characters being output;
+ *    otherwise, negative value on error.
+ */
+static ssize_t syna_testing_pt12_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	int retval, i;
+	unsigned int count = 0;
+	struct syna_tcm *tcm = g_tcm_ptr;
+	struct tcm_buffer test_data;
+	int *data_ptr = NULL;
+
+	if (!tcm->is_connected) {
+		count = snprintf(buf, PAGE_SIZE,
+				"Device is NOT connected\n");
+		goto exit;
+	}
+
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, true);
+
+	syna_tcm_buf_init(&test_data);
+
+	retval = syna_testing_pt12(tcm, &test_data);
+
+	count = snprintf(buf, PAGE_SIZE,
+			"TEST PT$12: %s\n", (retval < 0) ? "fail" : "pass");
+
+	count += scnprintf(buf + count, PAGE_SIZE - count, "%d %d\n",
+			tcm->tcm_dev->cols, tcm->tcm_dev->rows);
+
+	data_ptr = (int *)&(test_data.buf[0]);
+	for (i = 0; i < tcm->tcm_dev->cols; i++) {
+		count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+				data_ptr[i]);
+	}
+	count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+	for (i = 0; i < tcm->tcm_dev->rows; i++) {
+		count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+				data_ptr[tcm->tcm_dev->cols + i]);
+	}
+	count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+
+	syna_tcm_buf_release(&test_data);
+
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, false);
+exit:
+	return count;
+}
+
+static struct kobj_attribute kobj_attr_pt12 =
+	__ATTR(pt12, 0444, syna_testing_pt12_show, NULL);
+
+/**
+ * syna_testing_pt16()
+ *
+ * Sample code to perform PT16 testing
+ *
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static int syna_testing_pt16(struct syna_tcm *tcm, struct tcm_buffer *test_data)
+{
+	int retval;
+	bool result = false;
+
+	LOGI("Start testing\n");
+
+	retval = syna_tcm_run_production_test(tcm->tcm_dev,
+			TEST_PID22_TRANS_CAP_RAW,
+			test_data);
+	if (retval < 0) {
+		LOGE("Fail to run test %d\n", TEST_PID22_TRANS_CAP_RAW);
+		result = false;
+		goto exit;
+	}
+
+	result = syna_testing_compare_frame(test_data->buf,
+			test_data->data_length,
+			tcm->tcm_dev->rows,
+			tcm->tcm_dev->cols,
+			(const short *)&pt16_hi_limits[0],
+			(const short *)&pt16_lo_limits[0]);
+
+exit:
+	LOGI("Result = %s\n", (result)?"pass":"fail");
+
+	return ((result) ? 0 : -1);
+}
+
+/**
+ * syna_testing_pt16_show()
+ *
+ * Attribute to show the result of PT11 test to the console.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [out] buf:  string buffer shown on console
+ *
+ * @return
+ *    on success, number of characters being output;
+ *    otherwise, negative value on error.
+ */
+static ssize_t syna_testing_pt16_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	int retval, i, j;
+	short *data_ptr = NULL;
+	unsigned int count = 0;
+	struct syna_tcm *tcm = g_tcm_ptr;
+	struct tcm_buffer test_data;
+
+	if (!tcm->is_connected) {
+		count = snprintf(buf, PAGE_SIZE,
+				"Device is NOT connected\n");
+		goto exit;
+	}
+
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, true);
+
+	syna_tcm_buf_init(&test_data);
+
+	retval = syna_testing_pt16(tcm, &test_data);
+
+	count = snprintf(buf, PAGE_SIZE,
+			"TEST PT$16: %s\n", (retval < 0) ? "fail" : "pass");
+
+	count += scnprintf(buf + count, PAGE_SIZE - count, "%d %d\n",
+			tcm->tcm_dev->cols, tcm->tcm_dev->rows);
+
+	data_ptr = (short *)&(test_data.buf[0]);
+	for (i = 0; i < tcm->tcm_dev->rows; i++) {
+		for (j = 0; j < tcm->tcm_dev->cols; j++) {
+			count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+					data_ptr[i * tcm->tcm_dev->cols + j]);
+		}
+		count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+	}
+
+	syna_tcm_buf_release(&test_data);
+
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, false);
+exit:
+	return count;
+}
+
+static struct kobj_attribute kobj_attr_pt16 =
+	__ATTR(pt16, 0444, syna_testing_pt16_show, NULL);
+
 /*
  * declaration of sysfs attributes
  */
@@ -837,6 +1146,8 @@ static struct attribute *attrs[] = {
 	&kobj_attr_pt0a.attr,
 	&kobj_attr_pt10.attr,
 	&kobj_attr_pt11.attr,
+	&kobj_attr_pt12.attr,
+	&kobj_attr_pt16.attr,
 	NULL,
 };
 

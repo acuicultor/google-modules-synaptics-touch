@@ -128,6 +128,11 @@ static void syna_dev_reset_detected_cb(void *callback_data)
 		return;
 	}
 
+#ifdef RESET_ON_RESUME
+	if (tcm->pwr_state != PWR_ON)
+		return;
+#endif
+
 	if (ATOMIC_GET(tcm->helper.task) == HELP_NONE) {
 		ATOMIC_SET(tcm->helper.task, HELP_RESET_DETECTED);
 
@@ -157,7 +162,7 @@ static void syna_dev_helper_work(struct work_struct *work)
 
 	switch (task) {
 	case HELP_RESET_DETECTED:
-		LOGI("Reset caught, device mode 0x%x\n", tcm->tcm_dev->dev_mode);
+		LOGD("Reset caught (device mode:0x%x)\n", tcm->tcm_dev->dev_mode);
 		break;
 	default:
 		break;
@@ -324,23 +329,63 @@ static int syna_dev_parse_custom_gesture_cb(const unsigned char code,
 	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
 	unsigned int data;
 	unsigned int bits;
+	unsigned int offset = *report_offset;
+	struct custom_gesture_data {
+		unsigned short x;
+		unsigned short y;
+		unsigned char major;
+		unsigned char minor;
+	} g_pos;
 
 	bits = config[(*config_offset)++];
-	syna_tcm_get_touch_data(report, report_size, *report_offset, bits, &data);
 
-	switch (data) {
-	case GESTURE_SINGLE_TAP:
-		LOGI("Gesture single tap detected\n");
-		break;
-	case GESTURE_LONG_PRESS:
-		LOGI("Gesture long press detected\n");
-		break;
-	default:
-		LOGW("Unknown gesture id %d\n", data);
-		break;
+	if (code == TOUCH_REPORT_GESTURE_ID) {
+		syna_tcm_get_touch_data(report, report_size, offset, bits, &data);
+
+		switch (data) {
+		case GESTURE_SINGLE_TAP:
+			LOGI("Gesture single tap detected\n");
+			break;
+		case GESTURE_LONG_PRESS:
+			LOGI("Gesture long press detected\n");
+			break;
+		default:
+			LOGW("Unknown gesture id %d\n", data);
+			break;
+		}
+
+		*report_offset += bits;
+
+	} else if (code == TOUCH_REPORT_GESTURE_DATA) {
+		if (bits != (sizeof(struct custom_gesture_data) * 8)) {
+			LOGE("Invalid size of gesture data %d (expected:%d)\n",
+				bits, (int)(sizeof(struct custom_gesture_data) * 8));
+			return -EINVAL;
+		}
+
+		syna_tcm_get_touch_data(report, report_size, offset, 16, &data);
+		g_pos.x = (unsigned short)data;
+		offset += 16;
+
+		syna_tcm_get_touch_data(report, report_size, offset, 16, &data);
+		g_pos.y = (unsigned short)data;
+		offset += 16;
+
+		syna_tcm_get_touch_data(report, report_size, offset, 8, &data);
+		g_pos.major = (unsigned short)data;
+		offset += 8;
+
+		syna_tcm_get_touch_data(report, report_size, offset, 8, &data);
+		g_pos.minor = (unsigned short)data;
+		offset += 8;
+
+		*report_offset += bits;
+
+		LOGI("Gesture data x:%d y:%d major:%d minor:%d\n",
+			g_pos.x, g_pos.y, g_pos.major, g_pos.minor);
+	} else {
+		return -EINVAL;
 	}
-
-	report_offset += bits;
 
 	return bits;
 }
@@ -1118,6 +1163,7 @@ exit:
 	pm_relax(&tcm->pdev->dev);
 }
 #endif
+#if defined(POWER_ALIVE_AT_SUSPEND) && !defined(RESET_ON_RESUME)
 /**
  * syna_dev_enter_normal_sensing()
  *
@@ -1154,6 +1200,8 @@ static int syna_dev_enter_normal_sensing(struct syna_tcm *tcm)
 
 	return 0;
 }
+#endif
+#ifdef POWER_ALIVE_AT_SUSPEND
 /**
  * syna_dev_enter_lowpwr_sensing()
  *
@@ -1191,10 +1239,9 @@ static int syna_dev_enter_lowpwr_sensing(struct syna_tcm *tcm)
 		}
 	}
 
-	tcm->pwr_state = LOW_PWR;
-
 	return 0;
 }
+#endif
 
 static int syna_pinctrl_configure(struct syna_tcm *tcm, bool enable)
 {
@@ -1242,6 +1289,7 @@ static int syna_dev_resume(struct device *dev)
 	struct syna_tcm *tcm = dev_get_drvdata(dev);
 	struct syna_hw_interface *hw_if = tcm->hw_if;
 	bool irq_enabled = true;
+	unsigned char status;
 
 	/* exit directly if device isn't in suspend state */
 	if (tcm->pwr_state == PWR_ON)
@@ -1252,32 +1300,39 @@ static int syna_dev_resume(struct device *dev)
 	syna_pinctrl_configure(tcm, true);
 
 #ifdef RESET_ON_RESUME
+	LOGI("Do reset on resume\n");
 	syna_pal_sleep_ms(RESET_ON_RESUME_DELAY_MS);
 
 	if (hw_if->ops_hw_reset) {
 		hw_if->ops_hw_reset(hw_if);
+		retval = syna_tcm_get_event_data(tcm->tcm_dev,
+			&status, NULL);
+		if ((retval < 0) || (status != REPORT_IDENTIFY)) {
+			LOGE("Fail to complete hw reset\n");
+			goto exit;
+		}
 	} else {
 		retval = syna_tcm_reset(tcm->tcm_dev);
 		if (retval < 0) {
-			LOGE("Fail to do reset\n");
+			LOGE("Fail to do sw reset\n");
 			goto exit;
 		}
 	}
 #else
+#ifdef POWER_ALIVE_AT_SUSPEND
 	/* enter normal power mode */
 	retval = syna_dev_enter_normal_sensing(tcm);
 	if (retval < 0) {
 		LOGE("Fail to enter normal power mode\n");
 		goto exit;
 	}
-
+#endif
 	retval = syna_tcm_rezero(tcm->tcm_dev);
 	if (retval < 0) {
 		LOGE("Fail to rezero\n");
 		goto exit;
 	}
-#endif /* end of RESET_ON_RESUME */
-
+#endif
 	tcm->pwr_state = PWR_ON;
 
 	LOGI("Prepare to set up application firmware\n");
@@ -1292,12 +1347,9 @@ static int syna_dev_resume(struct device *dev)
 	retval = 0;
 
 	LOGI("Device resumed (pwr_state:%d)\n", tcm->pwr_state);
-
 exit:
-	/* once lpwg is enabled, irq should be enabled already.
-	 * otherwise, set irq back to active mode.
-	 */
-	irq_enabled = (!tcm->lpwg_enabled);
+	/* set irq back to active mode if not enabled yet */
+	irq_enabled = (!hw_if->bdata_attn.irq_enabled);
 
 	/* enable irq */
 	if (irq_enabled && (hw_if->ops_enable_irq))
@@ -1349,6 +1401,7 @@ static int syna_dev_suspend(struct device *dev)
 		LOGE("Fail to enter suspended power mode\n");
 		return retval;
 	}
+	tcm->pwr_state = LOW_PWR;
 #else
 	tcm->pwr_state = PWR_OFF;
 #endif

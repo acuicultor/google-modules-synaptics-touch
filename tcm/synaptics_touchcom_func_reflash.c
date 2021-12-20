@@ -1978,6 +1978,7 @@ int syna_tcm_do_fw_update(struct tcm_dev *tcm_dev,
 	int retval;
 	enum update_area type = UPDATE_NONE;
 	struct tcm_reflash_data_blob reflash_data;
+	int app_status;
 
 	if (!tcm_dev) {
 		LOGE("Invalid tcm device handle\n");
@@ -2007,6 +2008,17 @@ int syna_tcm_do_fw_update(struct tcm_dev *tcm_dev,
 	LOGN("Start of reflash\n");
 
 	ATOMIC_SET(tcm_dev->firmware_flashing, 1);
+
+	app_status = syna_pal_le2_to_uint(tcm_dev->app_info.status);
+
+	/* to forcedly update the firmware and config
+	 *   - flag of 'force_reflash' has been set
+	 *   - device stays in bootloader
+	 *   - app firmware doesn't run properly
+	 */
+	force_reflash = force_reflash ||
+		(IS_BOOTLOADER_MODE(tcm_dev->dev_mode)) ||
+		(IS_APP_FW_MODE(tcm_dev->dev_mode) && (app_status != APP_STATUS_OK));
 
 	if (force_reflash) {
 		type = UPDATE_FIRMWARE_CONFIG;

@@ -190,13 +190,15 @@ static void syna_tcm_v1_dispatch_report(struct tcm_dev *tcm_dev)
 				syna_pal_completion_complete(cmd_completion);
 				goto exit;
 			default:
-				LOGN("Device has been reset\n");
+				LOGN("Get unexpected 0x%02X report at command 0x%02X\n",
+					REPORT_IDENTIFY, tcm_msg->command);
 				ATOMIC_SET(tcm_msg->command_status,
 					CMD_STATE_ERROR);
 				syna_pal_completion_complete(cmd_completion);
 				goto exit;
 			}
 		} else {
+			LOGN("Device has been reset\n");
 			/* invoke callback to handle unexpected reset if doesn't
 			 * result from command
 			 */

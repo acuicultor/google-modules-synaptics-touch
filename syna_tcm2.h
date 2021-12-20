@@ -54,7 +54,7 @@
 
 #define SYNAPTICS_TCM_DRIVER_ID (1 << 0)
 #define SYNAPTICS_TCM_DRIVER_VERSION 1
-#define SYNAPTICS_TCM_DRIVER_SUBVER "2.3"
+#define SYNAPTICS_TCM_DRIVER_SUBVER "2.5"
 
 /**
  * @section: Driver Configurations
@@ -101,7 +101,7 @@
  *         from suspend.
  *         Set "disable" in default.
  */
-/* #define RESET_ON_RESUME */
+#define RESET_ON_RESUME
 
 /**
  * @brief ENABLE_WAKEUP_GESTURE
@@ -257,7 +257,7 @@
 
 /**
  * @brief ENABLE_HELPER
- *        Open if willing to do additional handling upon helper wokqueue
+ *        Open if willing to do additional handling upon helper workqueue
  *
  *        Set "disable" in default
  */

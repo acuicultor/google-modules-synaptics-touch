@@ -1189,14 +1189,16 @@ int syna_tcm_romboot_do_ihex_update(struct tcm_dev *tcm_dev,
 		return _EINVAL;
 	}
 
-	romboot_data = syna_pal_mem_alloc(1, sizeof(*romboot_data));
-	if (!romboot_data) {
-		LOGE("Fail to allocate buffer for romboot_data\n");
-		return _ENOMEM;
-	}
-
 	if (flash_size == 0)
 		flash_size = ihex_size + 4096;
+
+	romboot_data = syna_pal_mem_alloc(1,
+			sizeof(struct tcm_romboot_data_blob));
+	if (!romboot_data) {
+		LOGE("Fail to allocate romboot data blob\n");
+
+		return _ENOMEM;
+	}
 
 	romboot_data->bdata = ihex;
 	romboot_data->bdata_size = ihex_size;
@@ -1210,6 +1212,7 @@ int syna_tcm_romboot_do_ihex_update(struct tcm_dev *tcm_dev,
 	if (!ihex_info->bin) {
 		LOGE("Fail to allocate buffer for ihex data\n");
 		syna_pal_mem_free((void *)romboot_data);
+
 		return _ENOMEM;
 	}
 
@@ -1358,9 +1361,12 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 	struct block_data *block;
 	struct app_config_header *header;
 	unsigned int image_fw_id;
+	unsigned char *image_config_id;
+	unsigned char *device_config_id;
 	unsigned int erase_delay_ms = (wait_delay_ms >> 16) & 0xFFFF;
 	unsigned int wr_delay_ms = wait_delay_ms & 0xFFFF;
 	bool has_tool_boot_cfg = false;
+	bool reflash_required = false;
 
 	if (!tcm_dev) {
 		LOGE("Invalid tcm device handle\n");
@@ -1372,16 +1378,15 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 		return _EINVAL;
 	}
 
-	LOGN("Prepare to do reflash\n");
-
-	romboot_data = syna_pal_mem_alloc(1, sizeof(*romboot_data));
+	romboot_data = syna_pal_mem_alloc(1,
+			sizeof(struct tcm_romboot_data_blob));
 	if (!romboot_data) {
-		LOGE("Fail to allocate buffer for romboot_data\n");
+		LOGE("Fail to allocate romboot data blob\n");
+
 		return _ENOMEM;
 	}
 
-	syna_pal_mem_set(romboot_data, 0x00,
-		sizeof(struct tcm_romboot_data_blob));
+	LOGN("Prepare to do reflash\n");
 
 	syna_tcm_buf_init(&romboot_data->out);
 
@@ -1410,7 +1415,30 @@ int syna_tcm_romboot_do_multichip_reflash(struct tcm_dev *tcm_dev,
 	LOGN("Device firmware ID: %d, image build id: %d\n",
 		tcm_dev->packrat_number, image_fw_id);
 
-	if ((image_fw_id <= tcm_dev->packrat_number) && !force_reflash) {
+	if (image_fw_id != tcm_dev->packrat_number) {
+		LOGN("Image build ID and device fw ID mismatched\n");
+		reflash_required = true;
+	}
+
+	image_config_id = header->customer_config_id;
+	device_config_id = tcm_dev->app_info.customer_config_id;
+
+	for (idx = 0; idx < MAX_SIZE_CONFIG_ID; idx++) {
+		if (image_config_id[idx] != device_config_id[idx]) {
+			LOGN("Different Config ID\n");
+			reflash_required = true;
+		}
+	}
+	/* to start the process of firmware update
+	 *   - fw ID or config ID is mismatched
+	 *   - device stays in rom-bootloader
+	 *   - flag of 'force_reflash' has been set
+	 */
+	reflash_required = reflash_required ||
+		(IS_ROM_BOOTLOADER_MODE(tcm_dev->dev_mode)) ||
+		force_reflash;
+
+	if (!reflash_required) {
 		LOGN("No need to do reflash\n");
 		retval = 0;
 		goto exit;
@@ -1534,7 +1562,7 @@ exit:
 
 	syna_tcm_buf_release(&romboot_data->out);
 
-	syna_pal_mem_free((void *)romboot_data);
+	syna_pal_mem_free(romboot_data);
 
 	return retval;
 }

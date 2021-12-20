@@ -501,6 +501,16 @@ static ssize_t syna_sysfs_reset_store(struct kobject *kobj,
 		}
 
 		tcm->hw_if->ops_hw_reset(tcm->hw_if);
+
+		/* enable the interrupt to process the identify report
+		 * after the hardware reset.
+		 */
+		if (!tcm->hw_if->bdata_attn.irq_enabled) {
+			tcm->hw_if->ops_enable_irq(tcm->hw_if, true);
+			/* disable it and back to original status */
+			syna_pal_sleep_ms(100);
+			tcm->hw_if->ops_enable_irq(tcm->hw_if, false);
+		}
 	} else {
 		LOGW("Unknown option %d (1:sw / 2:hw)\n", input);
 		retval = -EINVAL;
