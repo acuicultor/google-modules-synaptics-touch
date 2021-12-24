@@ -238,6 +238,40 @@ static int syna_dev_enable_lowpwr_gesture(struct syna_tcm *tcm, bool en)
 	return retval;
 }
 
+/**
+ * syna_dev_set_heatmap_mode()
+ *
+ * Enable or disable the low power gesture mode.
+ * Furthermore, set up the wake-up irq.
+ *
+ * @param
+ *    [ in] tcm: tcm driver handle
+ *    [ in] en:  '1' to enable heatmap mode; '0' to disable.
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static void syna_dev_set_heatmap_mode(struct syna_tcm *tcm, bool en)
+{
+	int retval = 0;
+	struct syna_hw_attn_data *attn = &tcm->hw_if->bdata_attn;
+	uint8_t resp_code;
+	uint8_t heatmap[1] = {REPORT_HEAT_MAP};
+	uint8_t command = en ? CMD_ENABLE_REPORT : CMD_DISABLE_REPORT;
+	uint32_t delay = attn->irq_enabled ?
+			 RESP_IN_ATTN : tcm->tcm_dev->msg_data.default_resp_reading;
+
+	retval = tcm->tcm_dev->write_message(tcm->tcm_dev,
+			command,
+			heatmap,
+			1,
+			&resp_code,
+			delay);
+	if (retval < 0) {
+		LOGE("Fail to %s heatmap\n", en ? "enable" : "disable");
+	}
+}
+
 #ifdef ENABLE_CUSTOM_TOUCH_ENTITY
 /**
  * syna_dev_parse_custom_touch_data_cb()
@@ -1344,6 +1378,8 @@ static int syna_dev_resume(struct device *dev)
 		goto exit;
 	}
 
+	syna_dev_set_heatmap_mode(tcm, true);
+
 	retval = 0;
 
 	LOGI("Device resumed (pwr_state:%d)\n", tcm->pwr_state);
@@ -1414,6 +1450,8 @@ static int syna_dev_suspend(struct device *dev)
 	/* disable irq */
 	if (irq_disabled && (hw_if->ops_enable_irq))
 		hw_if->ops_enable_irq(hw_if, false);
+
+	syna_dev_set_heatmap_mode(tcm, false);
 
 	syna_pinctrl_configure(tcm, false);
 
