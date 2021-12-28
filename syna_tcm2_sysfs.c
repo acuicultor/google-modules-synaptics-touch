@@ -884,6 +884,97 @@ static struct kobj_attribute kobj_attr_get_raw_data =
 	__ATTR(get_raw_data, 0664, syna_sysfs_get_raw_data_show, syna_sysfs_get_raw_data_store);
 
 /**
+ * syna_sysfs_high_sensitivity_show()
+ *
+ * Attribute to show current sensitivity mode.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [out] buf:  string buffer shown on console
+ *
+ * @return
+ *    on success, number of characters being output;
+ *    otherwise, negative value on error.
+ */
+static ssize_t syna_sysfs_high_sensitivity_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	int retval = 0;
+	struct device *p_dev;
+	struct kobject *p_kobj;
+	struct syna_tcm *tcm;
+
+	p_kobj = g_sysfs_dir->parent;
+	p_dev = container_of(p_kobj, struct device, kobj);
+	tcm = dev_get_drvdata(p_dev);
+
+	syna_pal_mutex_lock(&g_extif_mutex);
+
+	retval = scnprintf(buf, PAGE_SIZE, "%d\n", tcm->high_sensitivity_mode);
+
+	syna_pal_mutex_unlock(&g_extif_mutex);
+	return retval;
+}
+
+/**
+ * syna_sysfs_high_sensitivity_store()
+ *
+ * Attribute to set high sensitivity mode.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [ in] buf:   string buffer input
+ *    [ in] count: size of buffer input
+ *
+ * @return
+ *    on success, return count; otherwise, return error code
+ */
+static ssize_t syna_sysfs_high_sensitivity_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	int retval = count;
+	bool input;
+	struct device *p_dev;
+	struct kobject *p_kobj;
+	struct syna_tcm *tcm;
+
+	p_kobj = g_sysfs_dir->parent;
+	p_dev = container_of(p_kobj, struct device, kobj);
+	tcm = dev_get_drvdata(p_dev);
+
+	if (kstrtobool(buf, &input)) {
+		LOGE("Invalid input %s", buf);
+		return -EINVAL;
+	}
+
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, true);
+	syna_pal_mutex_lock(&g_extif_mutex);
+
+	tcm->high_sensitivity_mode = input;
+
+	retval = syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_HIGH_SENSITIVIRY_MODE,
+				input,
+				RESP_IN_ATTN);
+
+	LOGI("%s high sensitivity mode.\n",
+	     tcm->high_sensitivity_mode ? "Enable" : "Disable");
+
+	retval = count;
+
+	syna_pal_mutex_unlock(&g_extif_mutex);
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, false);
+	return retval;
+}
+
+static struct kobj_attribute kobj_attr_high_sensitivity =
+	__ATTR(high_sensitivity, 0664, syna_sysfs_high_sensitivity_show,
+	       syna_sysfs_high_sensitivity_store);
+
+
+/**
  * declaration of sysfs attributes
  */
 static struct attribute *attrs[] = {
@@ -893,6 +984,7 @@ static struct attribute *attrs[] = {
 	&kobj_attr_scan_mode.attr,
 	&kobj_attr_force_active.attr,
 	&kobj_attr_get_raw_data.attr,
+	&kobj_attr_high_sensitivity.attr,
 	NULL,
 };
 

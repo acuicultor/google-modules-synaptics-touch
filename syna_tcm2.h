@@ -426,6 +426,7 @@ struct syna_tcm {
 	u8 raw_data_report_code;
 	s16 *raw_data_buffer;
 	struct completion raw_data_completion;
+	bool high_sensitivity_mode;
 
 #if defined(USE_DRM_BRIDGE)
 	struct drm_bridge panel_bridge;
