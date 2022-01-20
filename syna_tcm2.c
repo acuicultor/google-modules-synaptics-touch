@@ -1319,7 +1319,8 @@ static int syna_pinctrl_configure(struct syna_tcm *tcm, bool enable)
  */
 static int syna_dev_resume(struct device *dev)
 {
-	int retval;
+	int retval = 0;
+	int retry = 0;
 	struct syna_tcm *tcm = dev_get_drvdata(dev);
 	struct syna_hw_interface *hw_if = tcm->hw_if;
 	bool irq_enabled = true;
@@ -1340,22 +1341,29 @@ static int syna_dev_resume(struct device *dev)
 
 #ifdef RESET_ON_RESUME
 	LOGI("Do reset on resume\n");
-	syna_pal_sleep_ms(RESET_ON_RESUME_DELAY_MS);
 
-	if (hw_if->ops_hw_reset) {
-		hw_if->ops_hw_reset(hw_if);
-		retval = syna_tcm_get_event_data(tcm->tcm_dev,
-			&status, NULL);
-		if ((retval < 0) || (status != REPORT_IDENTIFY)) {
-			LOGE("Fail to complete hw reset\n");
-			goto exit;
+	for (retry = 0; retry < 3; retry++) {
+		if (hw_if->ops_hw_reset) {
+			hw_if->ops_hw_reset(hw_if);
+			retval = syna_tcm_get_event_data(tcm->tcm_dev,
+				&status, NULL);
+			if ((retval < 0) || (status != REPORT_IDENTIFY)) {
+				LOGE("Fail to complete hw reset, ret = %d, status = %d\n",
+				     retval, status);
+				continue;
+			}
+			break;
+		} else {
+			retval = syna_tcm_reset(tcm->tcm_dev);
+			if (retval < 0) {
+				LOGE("Fail to do sw reset, ret = %d\n", retval);
+				continue;
+			}
+			break;
 		}
-	} else {
-		retval = syna_tcm_reset(tcm->tcm_dev);
-		if (retval < 0) {
-			LOGE("Fail to do sw reset\n");
-			goto exit;
-		}
+	}
+	if (retval < 0 || (hw_if->ops_hw_reset && (status != REPORT_IDENTIFY))) {
+		goto exit;
 	}
 #else
 #ifdef POWER_ALIVE_AT_SUSPEND
@@ -2086,6 +2094,7 @@ static int syna_dev_probe(struct platform_device *pdev)
 	retval = tcm->dev_connect(tcm);
 	if (retval < 0) {
 		LOGE("Fail to connect to the device\n");
+		retval = -EPROBE_DEFER;
 		syna_pal_mutex_free(&tcm->tp_event_mutex);
 		goto err_connect;
 	}
