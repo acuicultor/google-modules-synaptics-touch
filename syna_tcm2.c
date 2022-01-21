@@ -906,7 +906,7 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 	/* handling the particular report data */
 	switch (code) {
 	case REPORT_HEAT_MAP:
-		/* for 'heat map' ($c1) report,
+		/* for 'heat map' ($c3) report,
 		 * report data has been stored at tcm->event_data.buf;
 		 * while, tcm->event_data.data_length is the size of data
 		 */
