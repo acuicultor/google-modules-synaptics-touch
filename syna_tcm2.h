@@ -53,6 +53,10 @@
 #include <linux/hrtimer.h>
 #endif
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
+#include <heatmap.h>
+#endif
+
 #define PLATFORM_DRIVER_NAME "synaptics_tcm"
 
 #define TOUCH_INPUT_NAME "synaptics_tcm_touch"
@@ -412,15 +416,21 @@ struct syna_tcm {
 	u32 bus_refmask;
 	struct mutex bus_mutex;
 	ktime_t bugreport_ktime_start;
-	ktime_t timestamp; /* Time that the event was first received from the
-			    * touch IC, acquired during hard interrupt, in
-			    * CLOCK_MONOTONIC */
+	ktime_t isr_timestamp; /* Time that the event was first received from the
+				* touch IC, acquired during hard interrupt, in
+				* CLOCK_MONOTONIC */
+	ktime_t coords_timestamp;
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	struct touch_offload_context offload;
 	u16 *heatmap_buff;
 	struct hrtimer heatmap_timer;
 	struct touch_offload_frame *reserved_frame;
+#endif
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
+	bool heatmap_decoded;
+	struct v4l2_heatmap v4l2;
 #endif
 
 	/* IOCTL-related variables */

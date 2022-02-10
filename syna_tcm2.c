@@ -627,7 +627,7 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 #endif
 	}
 
-	input_set_timestamp(input_dev, tcm->timestamp);
+	input_set_timestamp(input_dev, tcm->coords_timestamp);
 	input_sync(input_dev);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
@@ -850,7 +850,7 @@ static void syna_offload_report(void *handle,
 
 	syna_pal_mutex_lock(&tcm->tp_event_mutex);
 
-	input_set_timestamp(tcm->input_dev, report->timestamp);
+	input_set_timestamp(tcm->input_dev, tcm->coords_timestamp);
 
 	for (i = 0; i < MAX_COORDS; i++) {
 		if (report->coords[i].status == COORD_STATUS_FINGER) {
@@ -968,7 +968,7 @@ static void syna_populate_mutual_channel(struct syna_tcm *tcm,
 		TOUCH_OFFLOAD_FRAME_SIZE_2D(mutual_strength->rx_size,
 					    mutual_strength->tx_size);
 
-	/* for 'heat map' ($c1) report,
+	/* for 'heat map' ($c3) report,
 	 * report data has been stored at tcm->event_data.buf;
 	 * while, tcm->event_data.data_length is the size of data
 	 */
@@ -984,6 +984,11 @@ static void syna_populate_mutual_channel(struct syna_tcm *tcm,
 				tcm->heatmap_buff[tcm->tcm_dev->cols * j + i];
 		}
 	}
+	memcpy(tcm->heatmap_buff, (u16 *) mutual_strength->data,
+		   tcm->tcm_dev->cols * tcm->tcm_dev->rows * sizeof(u16));
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
+	tcm->heatmap_decoded = true;
+#endif
 }
 
 static void syna_populate_self_channel(struct syna_tcm *tcm,
@@ -1019,6 +1024,7 @@ static void syna_populate_frame(struct syna_tcm *tcm, bool has_heatmap)
 	struct touch_offload_frame *frame = tcm->reserved_frame;
 
 	frame->header.index = index++;
+	frame->header.timestamp = tcm->coords_timestamp;
 
 	/* Populate all channels */
 	for (i = 0; i < frame->num_channels; i++) {
@@ -1055,11 +1061,54 @@ static enum hrtimer_restart syna_heatmap_timer(struct hrtimer *timer)
 }
 #endif /* CONFIG_TOUCHSCREEN_OFFLOAD */
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
+static bool v4l2_read_frame(struct v4l2_heatmap *v4l2)
+{
+	bool ret = true;
+	int i, j;
+	struct syna_tcm *tcm =
+		container_of(v4l2, struct syna_tcm, v4l2);
+
+	if (tcm->v4l2.width == tcm->tcm_dev->rows &&
+		tcm->v4l2.height == tcm->tcm_dev->cols) {
+		if (tcm->heatmap_decoded) {
+			memcpy(v4l2->frame, tcm->heatmap_buff,
+			       tcm->v4l2.width * tcm->v4l2.height * sizeof(u16));
+		} else {
+		    /* for 'heat map' ($c3) report,
+		     * report data has been stored at tcm->event_data.buf;
+		     * while, tcm->event_data.data_length is the size of data
+		     */
+		    syna_dev_ptflib_decoder(tcm,
+			&((u16 *) tcm->event_data.buf)[tcm->tcm_dev->rows + tcm->tcm_dev->cols],
+			(tcm->event_data.data_length) / 2 -
+			    tcm->tcm_dev->rows - tcm->tcm_dev->cols,
+			tcm->heatmap_buff, tcm->tcm_dev->rows * tcm->tcm_dev->cols);
+
+		    for (i = 0; i < tcm->tcm_dev->cols; i++) {
+			for (j = 0; j < tcm->tcm_dev->rows; j++) {
+			    ((u16 *) v4l2->frame)[tcm->tcm_dev->rows * i + j] =
+				tcm->heatmap_buff[tcm->tcm_dev->cols * j + i];
+			}
+		    }
+		}
+	} else {
+		LOGE("size mismatched, (%lu, %lu) vs (%u, %u)!\n",
+		tcm->v4l2.width, tcm->v4l2.height,
+		tcm->tcm_dev->rows, tcm->tcm_dev->cols);
+		ret = false;
+	}
+	tcm->heatmap_decoded = false;
+
+	return ret;
+}
+#endif
+
 static irqreturn_t syna_dev_isr(int irq, void *handle)
 {
 	struct syna_tcm *tcm = handle;
 
-	tcm->timestamp = ktime_get();
+	tcm->isr_timestamp = ktime_get();
 
 	return IRQ_WAKE_THREAD;
 }
@@ -1135,6 +1184,7 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 			LOGE("Fail to parse touch report\n");
 			goto exit;
 		}
+		tcm->coords_timestamp = tcm->isr_timestamp;
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 		retval = touch_offload_reserve_frame(&tcm->offload, &tcm->reserved_frame);
@@ -1144,7 +1194,6 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 			/* Stop offload when there are no buffers available. */
 			syna_offload_set_running(tcm, false);
 		} else {
-			tcm->reserved_frame->header.timestamp = tcm->timestamp;
 			syna_offload_set_running(tcm, true);
 			hrtimer_start(&tcm->heatmap_timer,
 				      ktime_set(0, 2000000), /* 2ms. */
@@ -1184,7 +1233,7 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 		 */
 		LOGD("Heat map data received, size:%d\n",
 			tcm->event_data.data_length);
-
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 		if (tcm->offload.offload_running) {
 			/* 0 when the timer was not active.
 			 * 1 when the timer was active.
@@ -1202,6 +1251,10 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 				      retval);
 			}
 		}
+#endif
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
+		heatmap_read(&tcm->v4l2, ktime_to_ns(tcm->coords_timestamp));
+#endif
 		break;
 	case REPORT_FW_STATUS:
 		/* for 'fw status' ($c2) report,
@@ -2436,6 +2489,24 @@ static int syna_dev_probe(struct platform_device *pdev)
 	}
 #endif
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
+	/*
+	 * Heatmap_probe must be called before irq routine is registered,
+	 * because heatmap_read is called from interrupt context.
+	 */
+	tcm->v4l2.parent_dev = &tcm->pdev->dev;
+	tcm->v4l2.input_dev = tcm->input_dev;
+	tcm->v4l2.read_frame = v4l2_read_frame;
+	tcm->v4l2.width = tcm->tcm_dev->rows;
+	tcm->v4l2.height = tcm->tcm_dev->cols;
+	/* 240 Hz operation */
+	tcm->v4l2.timeperframe.numerator = 1;
+	tcm->v4l2.timeperframe.denominator = 240;
+	retval = heatmap_probe(&tcm->v4l2);
+	if (retval < 0)
+		goto err_heatmap_probe;
+#endif
+
 #ifdef HAS_SYSFS_INTERFACE
 	/* create the device file and register to char device classes */
 	retval = syna_cdev_create_sysfs(tcm, pdev);
@@ -2493,13 +2564,20 @@ static int syna_dev_probe(struct platform_device *pdev)
 
 #ifdef HAS_SYSFS_INTERFACE
 err_create_cdev:
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-	touch_offload_cleanup(&tcm->offload);
-#endif
+
 	syna_tcm_remove_device(tcm->tcm_dev);
 #endif
 #if defined(TCM_CONNECT_IN_PROBE)
 	tcm->dev_disconnect(tcm);
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
+	heatmap_remove(&tcm->v4l2);
+err_heatmap_probe:
+#endif
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	touch_offload_cleanup(&tcm->offload);
+#endif
+
 err_connect:
 #endif
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
@@ -2570,6 +2648,10 @@ static int syna_dev_remove(struct platform_device *pdev)
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	touch_offload_cleanup(&tcm->offload);
 	hrtimer_cancel(&tcm->heatmap_timer);
+#endif
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
+	heatmap_remove(&tcm->v4l2);
 #endif
 
 	/* check the connection statusm, and do disconnection */
