@@ -272,6 +272,32 @@ static void syna_dev_set_heatmap_mode(struct syna_tcm *tcm, bool en)
 	}
 }
 
+/**
+ * syna_dev_restore_feature_setting()
+ *
+ * Restore the feature settings after the device resume.
+ *
+ * @param
+ *    [ in] tcm: tcm driver handle
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static void syna_dev_restore_feature_setting(struct syna_tcm *tcm)
+{
+	syna_dev_set_heatmap_mode(tcm, true);
+
+	syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_ENABLE_PALM_REJECTION,
+				(tcm->enable_fw_palm & 0x01),
+				RESP_IN_POLLING);
+
+	syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_ENABLE_GRIP_SUPPRESSION,
+				(tcm->enable_fw_grip & 0x01),
+				RESP_IN_POLLING);
+}
+
 #ifdef ENABLE_CUSTOM_TOUCH_ENTITY
 /**
  * syna_dev_parse_custom_touch_data_cb()
@@ -553,6 +579,7 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 			break;
 		case FINGER:
 		case GLOVED_OBJECT:
+		case PALM:
 			x = object_data[idx].x_pos;
 			y = object_data[idx].y_pos;
 			wx = object_data[idx].x_width;
@@ -838,6 +865,13 @@ static void syna_offload_set_running(struct syna_tcm *tcm, bool running)
 {
 	if (tcm->offload.offload_running != running) {
 		tcm->offload.offload_running = running;
+	}
+	if (tcm->offload.offload_running == tcm->enable_fw_grip && tcm->enable_fw_grip < 2) {
+		tcm->enable_fw_grip = tcm->offload.offload_running ? 0 : 1;
+		syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_ENABLE_GRIP_SUPPRESSION,
+				tcm->enable_fw_grip,
+				RESP_IN_POLLING);
 	}
 }
 
@@ -1734,7 +1768,7 @@ static int syna_dev_resume(struct device *dev)
 		goto exit;
 	}
 
-	syna_dev_set_heatmap_mode(tcm, true);
+	syna_dev_restore_feature_setting(tcm);
 
 	retval = 0;
 
@@ -2516,6 +2550,10 @@ static int syna_dev_probe(struct platform_device *pdev)
 		goto err_create_cdev;
 	}
 #endif
+
+	tcm->enable_fw_grip = 0x00;
+	tcm->enable_fw_palm = 0x01;
+	syna_dev_restore_feature_setting(tcm);
 
 #if defined(USE_DRM_BRIDGE)
 	retval = syna_register_panel_bridge(tcm);

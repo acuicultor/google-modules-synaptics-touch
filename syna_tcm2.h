@@ -453,6 +453,8 @@ struct syna_tcm {
 	s16 *raw_data_buffer;
 	struct completion raw_data_completion;
 	bool high_sensitivity_mode;
+	u8 enable_fw_grip;
+	u8 enable_fw_palm;
 
 #if defined(USE_DRM_BRIDGE)
 	struct drm_bridge panel_bridge;
