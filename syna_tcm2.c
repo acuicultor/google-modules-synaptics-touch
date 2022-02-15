@@ -297,6 +297,83 @@ static void syna_dev_restore_feature_setting(struct syna_tcm *tcm)
 				(tcm->enable_fw_grip & 0x01),
 				RESP_IN_POLLING);
 }
+/* Update a state machine used to toggle control of the touch IC's motion
+ * filter.
+ */
+static int syna_update_motion_filter(struct syna_tcm *tcm, u8 touches)
+{
+	/* Motion filter timeout, in milliseconds */
+	const u32 mf_timeout_ms = 500;
+	u8 next_state;
+
+	if (tcm->mf_mode == 0) {
+		if (touches != 0)
+			next_state = MF_UNFILTERED;
+		else
+			next_state = MF_FILTERED;
+	} else if (tcm->mf_mode == 1) {
+		/* Determine the next filter state. The motion filter is enabled by
+		 * default and it is disabled while a single finger is touching the
+		 * screen. If another finger is touched down or if a timeout expires,
+		 * the motion filter is reenabled and remains enabled until all fingers
+		 * are lifted.
+		 */
+		next_state = tcm->mf_state;
+		switch (tcm->mf_state) {
+		case MF_FILTERED:
+			if (touches == 1) {
+				next_state = MF_UNFILTERED;
+				tcm->mf_downtime = ktime_get();
+			}
+			break;
+		case MF_UNFILTERED:
+			if (touches == 0) {
+				next_state = MF_FILTERED;
+			} else if (touches > 1 ||
+				   ktime_after(ktime_get(),
+					       ktime_add_ms(tcm->mf_downtime,
+							    mf_timeout_ms))) {
+				next_state = MF_FILTERED_LOCKED;
+			}
+			break;
+		case MF_FILTERED_LOCKED:
+			if (touches == 0) {
+				next_state = MF_FILTERED;
+			}
+			break;
+		}
+	} else if (tcm->mf_mode == 2) {
+		next_state = MF_FILTERED;
+	} else {
+		/* Set 0 as default when an invalid value is found. */
+		tcm->mf_mode = 0;
+		return 0;
+	}
+
+	/* Queue work to update filter state */
+	if ((next_state == MF_UNFILTERED) !=
+	    (tcm->mf_state == MF_UNFILTERED)) {
+		tcm->set_continuously_report = (next_state == MF_UNFILTERED) ? 0x01 : 0x00;
+		queue_work(tcm->event_wq, &tcm->motion_filter_work);
+	}
+
+	tcm->mf_state = next_state;
+
+	return 0;
+}
+
+static void syna_motion_filter_work(struct work_struct *work)
+{
+	struct syna_tcm *tcm = container_of(work, struct syna_tcm, motion_filter_work);
+
+	/* Send command to update filter state */
+	LOGD("setting motion filter = %s.\n",
+		 tcm->set_continuously_report ? "false" : "true");
+	syna_tcm_set_dynamic_config(tcm->tcm_dev,
+			DC_CONTINUOUSLY_REPORT,
+			tcm->set_continuously_report,
+			RESP_IN_ATTN);
+}
 
 #ifdef ENABLE_CUSTOM_TOUCH_ENTITY
 /**
@@ -657,6 +734,8 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 	input_set_timestamp(input_dev, tcm->coords_timestamp);
 	input_sync(input_dev);
 
+	syna_update_motion_filter(tcm, touch_count);
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	}
 #endif
@@ -881,6 +960,7 @@ static void syna_offload_report(void *handle,
 	struct syna_tcm *tcm = (struct syna_tcm *)handle;
 	bool touch_down = 0;
 	int i;
+	int touch_count = 0;
 
 	syna_pal_mutex_lock(&tcm->tp_event_mutex);
 
@@ -889,6 +969,7 @@ static void syna_offload_report(void *handle,
 	for (i = 0; i < MAX_COORDS; i++) {
 		if (report->coords[i].status == COORD_STATUS_FINGER) {
 			input_mt_slot(tcm->input_dev, i);
+			touch_count++;
 			touch_down = 1;
 			input_report_key(tcm->input_dev, BTN_TOUCH,
 					 touch_down);
@@ -919,6 +1000,7 @@ static void syna_offload_report(void *handle,
 	input_report_key(tcm->input_dev, BTN_TOOL_FINGER, touch_down);
 
 	input_sync(tcm->input_dev);
+	syna_update_motion_filter(tcm, touch_count);
 
 	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
 }
@@ -2540,6 +2622,11 @@ static int syna_dev_probe(struct platform_device *pdev)
 	if (retval < 0)
 		goto err_heatmap_probe;
 #endif
+
+	/* init motion filter mode */
+	tcm->mf_mode = 0;
+
+	INIT_WORK(&tcm->motion_filter_work, syna_motion_filter_work);
 
 #ifdef HAS_SYSFS_INTERFACE
 	/* create the device file and register to char device classes */

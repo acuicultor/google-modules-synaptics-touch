@@ -299,6 +299,17 @@ enum {
 	SYNA_BUS_REF_BUGREPORT		= 0x0020,
 };
 
+/* Motion filter finite state machine (FSM) states
+ * MF_FILTERED        - default coordinate filtering
+ * MF_UNFILTERED      - unfiltered single-touch coordinates
+ * MF_FILTERED_LOCKED - filtered coordinates. Locked until touch is lifted.
+ */
+typedef enum {
+	MF_FILTERED		= 0,
+	MF_UNFILTERED		= 1,
+	MF_FILTERED_LOCKED	= 2
+} motion_filter_state_t;
+
 #if defined(ENABLE_HELPER)
 /**
  * @brief: Tasks for helper
@@ -432,6 +443,23 @@ struct syna_tcm {
 	bool heatmap_decoded;
 	struct v4l2_heatmap v4l2;
 #endif
+
+	/* Motion filter mode.
+	 *  0 = Always unfilter.
+	 *  1 = Dynamic change motion filter.
+	 *  2 = Always filter by touch FW.
+	 */
+	u8 mf_mode;
+	/* Payload for continuously report. */
+	u16 set_continuously_report;
+	/* Motion filter finite state machine (FSM) state */
+	motion_filter_state_t mf_state;
+	/* Time of initial single-finger touch down. This timestamp is used to
+	 * compute the duration a single finger is touched before it is lifted.
+	 */
+	ktime_t mf_downtime;
+	/* Work for motion filter commands. */
+	struct work_struct motion_filter_work;
 
 	/* IOCTL-related variables */
 	pid_t proc_pid;
