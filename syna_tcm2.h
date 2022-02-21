@@ -57,6 +57,8 @@
 #include <heatmap.h>
 #endif
 
+#include <linux/pm_qos.h>
+
 #define PLATFORM_DRIVER_NAME "synaptics_tcm"
 
 #define TOUCH_INPUT_NAME "synaptics_tcm_touch"
@@ -463,6 +465,8 @@ struct syna_tcm {
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	u32 tbn_register_mask;
 #endif
+
+	struct pm_qos_request pm_qos_req;
 
 	/* fifo to pass the data to userspace */
 	unsigned int fifo_remaining_frame;

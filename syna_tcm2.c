@@ -1136,6 +1136,8 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 	struct syna_hw_attn_data *attn = &tcm->hw_if->bdata_attn;
 	struct tcm_dev *tcm_dev = tcm->tcm_dev;
 
+	cpu_latency_qos_update_request(&tcm->pm_qos_req, 100 /* usec */);
+
 	/* It is possible that interrupts were disabled while the handler is
 	 * executing, before acquiring the mutex. If so, simply return.
 	 */
@@ -1271,6 +1273,7 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 
 exit:
 	syna_set_bus_ref(tcm, SYNA_BUS_REF_IRQ, false);
+	cpu_latency_qos_update_request(&tcm->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 	return IRQ_HANDLED;
 }
 
@@ -2423,6 +2426,8 @@ static int syna_dev_probe(struct platform_device *pdev)
 	init_completion(&tcm->bus_resumed);
 	complete_all(&tcm->bus_resumed);
 
+	cpu_latency_qos_add_request(&tcm->pm_qos_req, PM_QOS_DEFAULT_VALUE);
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	if (register_tbn(&tcm->tbn_register_mask)) {
 		retval = -ENODEV;
@@ -2584,6 +2589,8 @@ err_connect:
 	if (tcm->tbn_register_mask)
 		unregister_tbn(&tcm->tbn_register_mask);
 #endif
+	cpu_latency_qos_remove_request(&tcm->pm_qos_req);
+
 	if (tcm->event_wq)
 		destroy_workqueue(tcm->event_wq);
 err_alloc_workqueue:
@@ -2624,6 +2631,7 @@ static int syna_dev_remove(struct platform_device *pdev)
 	if (tcm->tbn_register_mask)
 		unregister_tbn(&tcm->tbn_register_mask);
 #endif
+	cpu_latency_qos_remove_request(&tcm->pm_qos_req);
 
 	if (tcm->raw_data_buffer)
 		kfree(tcm->raw_data_buffer);
