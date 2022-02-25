@@ -2752,6 +2752,9 @@ static int syna_dev_remove(struct platform_device *pdev)
 	destroy_workqueue(tcm->helper.workqueue);
 #endif
 
+	cancel_work_sync(&tcm->suspend_work);
+	cancel_work_sync(&tcm->resume_work);
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	if (tcm->tbn_register_mask)
 		unregister_tbn(&tcm->tbn_register_mask);
