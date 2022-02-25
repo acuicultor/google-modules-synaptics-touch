@@ -446,6 +446,7 @@ static int syna_spi_parse_dt(struct syna_hw_interface *hw_if,
 	int retval;
 	int index;
 	u32 value;
+	u32 coords[2];
 	struct property *prop;
 	struct device_node *np = dev->of_node;
 	const char *name;
@@ -691,6 +692,14 @@ static int syna_spi_parse_dt(struct syna_hw_interface *hw_if,
 		    hw_if->offload_id);
 	}
 #endif
+
+	if (of_property_read_u32_array(np, "synaptics,udfps-coords", coords, 2)) {
+		dev_err(dev, "synaptics,udfps-coords not found\n");
+		coords[0] = 0;
+		coords[1] = 0;
+	}
+	hw_if->udfps_x = coords[0];
+	hw_if->udfps_y = coords[1];
 
 	return 0;
 }

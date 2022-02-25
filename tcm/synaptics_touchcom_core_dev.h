@@ -185,6 +185,19 @@ enum tcm_app_status {
 };
 
 /**
+ * @section: Touch Scan Mode Dynamic Configuration
+ *
+ * The current touch scan mode.
+ */
+enum tcm_scan_mode {
+	SCAN_NORMAL_IDLE = 0,
+	SCAN_NORMAL_ACTIVE,
+	SCAN_LPWG_IDLE,
+	SCAN_LPWG_ACTIVE,
+	SCAN_SLEEP,
+};
+
+/**
  * @section: Field IDs in Dynamic Configuration
  *
  * The codes specify the generic dynamic configuration options.
@@ -209,6 +222,7 @@ enum dynamic_tcm_config_id {
 	DC_DISABLE_PROXIMITY = 0x10,
 	DC_HIGH_SENSITIVIRY_MODE = 0xCB,
 	DC_FORCE_DOZE_MODE = 0xF0,
+	DC_TOUCH_SCAN_MODE = 0xF2,
 	DC_ENABLE_PALM_REJECTION = 0xF3,
 	DC_CONTINUOUSLY_REPORT = 0xF5,
 };

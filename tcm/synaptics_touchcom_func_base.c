@@ -1281,6 +1281,7 @@ int syna_tcm_get_dynamic_config(struct tcm_dev *tcm_dev,
 	if (tcm_dev->resp_buf.data_length < 2) {
 		LOGE("Invalid resp data size, %d\n",
 			tcm_dev->resp_buf.data_length);
+		retval = _EINVAL;
 		goto exit;
 	}
 

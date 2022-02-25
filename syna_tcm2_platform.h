@@ -150,6 +150,8 @@ struct syna_hw_interface {
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	u32 offload_id;
 #endif
+	int udfps_x;
+	int udfps_y;
 
 	/* Operation to do power on/off, if supported
 	 *
