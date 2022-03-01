@@ -662,6 +662,10 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 			wx = object_data[idx].x_width;
 			wy = object_data[idx].y_width;
 
+			/* Report major and minor in display pixels. */
+			wx = wx * tcm->hw_if->pixels_per_mm;
+			wy = wy * tcm->hw_if->pixels_per_mm;
+
 			if (object_data[idx].z == 0) {
 				z = 1;
 				LOGW("Get a touch coordinate with pressure = 0");
@@ -811,9 +815,9 @@ static int syna_dev_create_input_device(struct syna_tcm *tcm)
 
 #ifdef REPORT_TOUCH_WIDTH
 	input_set_abs_params(input_dev,
-			ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
+			ABS_MT_TOUCH_MAJOR, 0, tcm_dev->max_x, 0, 0);
 	input_set_abs_params(input_dev,
-			ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
+			ABS_MT_TOUCH_MINOR, 0, tcm_dev->max_y, 0, 0);
 #endif
 
 	tcm->input_dev_params.max_x = tcm_dev->max_x;
