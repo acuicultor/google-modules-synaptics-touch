@@ -657,6 +657,25 @@ static int syna_spi_parse_dt(struct syna_hw_interface *hw_if,
 		bus->spi_mode = 0;
 	}
 
+	prop = of_find_property(np, "synaptics,pixels-per-mm", NULL);
+	if (prop && prop->length) {
+		retval = of_property_read_u32(np, "synaptics,pixels-per-mm",
+				&value);
+		if (retval < 0) {
+			LOGE("Fail to read synaptics,pixels-per-mm\n");
+			return retval;
+		}
+
+		hw_if->pixels_per_mm = value;
+
+	} else {
+		/*
+		 * Set default as 1 to let the driver report the value from the
+		 * touch IC if pixels_per_mm is not set.
+		 */
+		hw_if->pixels_per_mm = 1;
+	}
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	hw_if->offload_id = 0;
 	retval = of_property_read_u8_array(np, "synaptics,touch_offload_id",
