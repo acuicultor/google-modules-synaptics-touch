@@ -437,8 +437,8 @@ struct syna_tcm {
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	struct touch_offload_context offload;
 	u16 *heatmap_buff;
-	struct hrtimer heatmap_timer;
 	struct touch_offload_frame *reserved_frame;
+	bool reserved_frame_success;
 #endif
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)

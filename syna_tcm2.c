@@ -968,7 +968,7 @@ static void syna_offload_report(void *handle,
 
 	syna_pal_mutex_lock(&tcm->tp_event_mutex);
 
-	input_set_timestamp(tcm->input_dev, tcm->coords_timestamp);
+	input_set_timestamp(tcm->input_dev, report->timestamp);
 
 	for (i = 0; i < MAX_COORDS; i++) {
 		if (report->coords[i].status == COORD_STATUS_FINGER) {
@@ -1159,26 +1159,6 @@ static void syna_populate_frame(struct syna_tcm *tcm, bool has_heatmap)
 		}
 	}
 }
-
-static enum hrtimer_restart syna_heatmap_timer(struct hrtimer *timer)
-{
-	int retval = 0;
-	struct syna_tcm *tcm =
-		container_of(timer, struct syna_tcm, heatmap_timer);
-
-	LOGD("Miss a frame of touch heatmap.");
-
-	syna_populate_frame(tcm, false);
-
-	retval = touch_offload_queue_frame(&tcm->offload,
-					   tcm->reserved_frame);
-	if (retval != 0) {
-		LOGE("Failed to queue reserved frame: error=%d.\n",
-		      retval);
-	}
-
-	return HRTIMER_NORESTART;
-}
 #endif /* CONFIG_TOUCHSCREEN_OFFLOAD */
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
@@ -1297,6 +1277,14 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 #endif
 	/* report input event only when receiving a touch report */
 	if (code == REPORT_TOUCH) {
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+		if (tcm->reserved_frame_success) {
+			LOGW("Last reserved frame was not queued.\n");
+			syna_populate_frame(tcm, false);
+			touch_offload_queue_frame(&tcm->offload, tcm->reserved_frame);
+			tcm->reserved_frame_success = false;
+		}
+#endif
 		/* parse touch report once received */
 		retval = syna_tcm_parse_touch_report(tcm->tcm_dev,
 				tcm->event_data.buf,
@@ -1316,10 +1304,8 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 			/* Stop offload when there are no buffers available. */
 			syna_offload_set_running(tcm, false);
 		} else {
+			tcm->reserved_frame_success = true;
 			syna_offload_set_running(tcm, true);
-			hrtimer_start(&tcm->heatmap_timer,
-				      ktime_set(0, 2000000), /* 2ms. */
-				      HRTIMER_MODE_REL);
 		}
 #endif
 
@@ -1357,13 +1343,6 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 			tcm->event_data.data_length);
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 		if (tcm->offload.offload_running) {
-			/* 0 when the timer was not active.
-			 * 1 when the timer was active.
-			 * -1 when the timer is currently excuting the callback
-			 * function and cannot be stopped. */
-			if (hrtimer_try_to_cancel(&tcm->heatmap_timer) != 1)
-				break;
-
 			syna_populate_frame(tcm, true);
 
 			retval = touch_offload_queue_frame(&tcm->offload,
@@ -1371,6 +1350,8 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 			if (retval != 0) {
 				LOGE("Failed to queue reserved frame: error=%d.\n",
 				      retval);
+			} else {
+				tcm->reserved_frame_success = false;
 			}
 		}
 #endif
@@ -2573,9 +2554,6 @@ static int syna_dev_probe(struct platform_device *pdev)
 	complete_all(&tcm->raw_data_completion);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-	hrtimer_init(&tcm->heatmap_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	tcm->heatmap_timer.function = syna_heatmap_timer;
-
 	tcm->offload.caps.touch_offload_major_version = TOUCH_OFFLOAD_INTERFACE_MAJOR_VERSION;
 	tcm->offload.caps.touch_offload_minor_version = TOUCH_OFFLOAD_INTERFACE_MINOR_VERSION;
 	tcm->offload.caps.device_id = tcm->hw_if->offload_id;
@@ -2787,7 +2765,6 @@ static int syna_dev_remove(struct platform_device *pdev)
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	touch_offload_cleanup(&tcm->offload);
-	hrtimer_cancel(&tcm->heatmap_timer);
 #endif
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
