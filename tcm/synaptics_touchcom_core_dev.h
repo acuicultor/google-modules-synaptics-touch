@@ -121,6 +121,9 @@
 #define RESP_IN_ATTN (1)
 #define RESP_IN_POLLING (CMD_RESPONSE_POLLING_DELAY_MS)
 
+#define CONFIG_HIGH_REPORT_RATE 0
+#define CONFIG_LOW_REPORT_RATE 1
+
 /**
  * @section: Macro to show string in log
  */
@@ -221,6 +224,8 @@ enum dynamic_tcm_config_id {
 	DC_INHIBIT_ACTIVE_GESTURE = 0x0f,
 	DC_DISABLE_PROXIMITY = 0x10,
 	DC_HIGH_SENSITIVIRY_MODE = 0xCB,
+	/* Set 0 for high report rate(240Hz), 1 for low report rate(120Hz). */
+	DC_REPORT_RATE_SWITCH = 0xE6,
 	DC_FORCE_DOZE_MODE = 0xF0,
 	DC_COMPRESSION_THRESHOLD = 0xF1,
 	DC_TOUCH_SCAN_MODE = 0xF2,

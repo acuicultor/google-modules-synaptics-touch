@@ -153,6 +153,7 @@ struct syna_hw_interface {
 #endif
 	int udfps_x;
 	int udfps_y;
+	bool dynamic_report_rate;
 
 	/* Operation to do power on/off, if supported
 	 *

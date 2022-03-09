@@ -696,6 +696,8 @@ static int syna_spi_parse_dt(struct syna_hw_interface *hw_if,
 		hw_if->compression_threhsold = 15;
 	}
 
+	hw_if->dynamic_report_rate = of_property_read_bool(np,"synaptics,dynamic-report-rate");
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	hw_if->offload_id = 0;
 	retval = of_property_read_u8_array(np, "synaptics,touch_offload_id",

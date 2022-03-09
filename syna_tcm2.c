@@ -301,7 +301,15 @@ static void syna_dev_restore_feature_setting(struct syna_tcm *tcm)
 			DC_COMPRESSION_THRESHOLD,
 			tcm->hw_if->compression_threhsold,
 			RESP_IN_POLLING);
+
+	if (tcm->hw_if->dynamic_report_rate) {
+		syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_REPORT_RATE_SWITCH,
+				tcm->touch_report_rate_config,
+				RESP_IN_POLLING);
+	}
 }
+
 /* Update a state machine used to toggle control of the touch IC's motion
  * filter.
  */
@@ -378,6 +386,28 @@ static void syna_motion_filter_work(struct work_struct *work)
 			DC_CONTINUOUSLY_REPORT,
 			tcm->set_continuously_report,
 			RESP_IN_ATTN);
+}
+
+static void syna_set_report_rate_work(struct work_struct *work)
+{
+	struct syna_tcm *tcm;
+	struct delayed_work *delayed_work;
+	delayed_work = container_of(work, struct delayed_work, work);
+	tcm = container_of(delayed_work, struct syna_tcm, set_report_rate_work);
+
+	if (tcm->touch_count != 0) {
+		queue_delayed_work(tcm->event_wq, &tcm->set_report_rate_work,
+				msecs_to_jiffies(10));
+		return;
+	}
+
+	tcm->touch_report_rate_config = tcm->next_report_rate_config;
+	syna_tcm_set_dynamic_config(tcm->tcm_dev,
+			DC_REPORT_RATE_SWITCH,
+			tcm->touch_report_rate_config,
+			RESP_IN_ATTN);
+	LOGI("Set touch report rate as %dHz",
+		(tcm->touch_report_rate_config == CONFIG_HIGH_REPORT_RATE) ? 240 : 120);
 }
 
 #ifdef ENABLE_CUSTOM_TOUCH_ENTITY
@@ -742,6 +772,7 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 
 	input_set_timestamp(input_dev, tcm->coords_timestamp);
 	input_sync(input_dev);
+	tcm->touch_count = touch_count;
 
 	syna_update_motion_filter(tcm, touch_count);
 
@@ -1043,6 +1074,8 @@ static void syna_offload_report(void *handle,
 	input_report_key(tcm->input_dev, BTN_TOOL_FINGER, touch_down);
 
 	input_sync(tcm->input_dev);
+	tcm->touch_count = touch_count;
+
 	syna_update_motion_filter(tcm, touch_count);
 
 	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
@@ -2037,6 +2070,9 @@ static int syna_dev_suspend(struct device *dev)
 
 	LOGI("Prepare to suspend device\n");
 
+	if (tcm->hw_if->dynamic_report_rate)
+		cancel_delayed_work_sync(&tcm->set_report_rate_work);
+
 	reinit_completion(&tcm->bus_resumed);
 
 	/* clear all input events  */
@@ -2319,7 +2355,7 @@ static void syna_panel_bridge_enable(struct drm_bridge *bridge)
 	struct syna_tcm *tcm =
 			container_of(bridge, struct syna_tcm, panel_bridge);
 
-	pr_debug("%s\n", __func__);
+	LOGD("%s\n", __func__);
 	if (!tcm ->is_panel_lp_mode)
 		syna_set_bus_ref(tcm, SYNA_BUS_REF_SCREEN_ON, true);
 }
@@ -2336,7 +2372,7 @@ static void syna_panel_bridge_disable(struct drm_bridge *bridge)
 			return;
 	}
 
-	pr_debug("%s\n", __func__);
+	LOGD("%s\n", __func__);
 	syna_set_bus_ref(tcm, SYNA_BUS_REF_SCREEN_ON, false);
 }
 
@@ -2347,10 +2383,10 @@ static void syna_panel_bridge_mode_set(struct drm_bridge *bridge,
 	struct syna_tcm *tcm =
 			container_of(bridge, struct syna_tcm, panel_bridge);
 
-	pr_debug("%s\n", __func__);
+	LOGD("%s\n", __func__);
 
 	if (!tcm->connector || !tcm->connector->state) {
-		pr_info("%s: Get bridge connector.\n", __func__);
+		LOGI("%s: Get bridge connector.\n", __func__);
 		tcm->connector = syna_get_bridge_connector(bridge);
 	}
 
@@ -2359,6 +2395,31 @@ static void syna_panel_bridge_mode_set(struct drm_bridge *bridge,
 		syna_set_bus_ref(tcm, SYNA_BUS_REF_SCREEN_ON, false);
 	else
 		syna_set_bus_ref(tcm, SYNA_BUS_REF_SCREEN_ON, true);
+
+	if (mode && tcm->hw_if->dynamic_report_rate) {
+		int vrefresh = drm_mode_vrefresh(mode);
+		LOGD("Display refresh rate %dHz", vrefresh);
+		if (vrefresh == 120 || vrefresh == 90)
+			tcm->next_report_rate_config = CONFIG_HIGH_REPORT_RATE;
+		else
+			tcm->next_report_rate_config = CONFIG_LOW_REPORT_RATE;
+
+		if (tcm->last_vrefresh_rate != vrefresh)
+			cancel_delayed_work_sync(&tcm->set_report_rate_work);
+
+		if (tcm->next_report_rate_config != tcm->touch_report_rate_config &&
+			tcm->pwr_state == PWR_ON && tcm->bus_refmask != 0) {
+			/*
+			 * Queue the work immediately for increasing touch report rate
+			 * to 240Hz and queue 2 seconds delay work for decreasing
+			 * touch report rate.
+			 */
+			queue_delayed_work(tcm->event_wq, &tcm->set_report_rate_work,
+				(tcm->next_report_rate_config == CONFIG_HIGH_REPORT_RATE) ?
+				0 : msecs_to_jiffies(2 * MSEC_PER_SEC));
+		}
+		tcm->last_vrefresh_rate = vrefresh;
+	}
 }
 
 static const struct drm_bridge_funcs panel_bridge_funcs = {
@@ -2783,6 +2844,9 @@ static int syna_dev_probe(struct platform_device *pdev)
 
 	INIT_WORK(&tcm->motion_filter_work, syna_motion_filter_work);
 
+	tcm->touch_report_rate_config = CONFIG_HIGH_REPORT_RATE;
+	INIT_DELAYED_WORK(&tcm->set_report_rate_work, syna_set_report_rate_work);
+
 #ifdef HAS_SYSFS_INTERFACE
 	/* create the device file and register to char device classes */
 	retval = syna_cdev_create_sysfs(tcm, pdev);
@@ -2904,6 +2968,8 @@ static int syna_dev_remove(struct platform_device *pdev)
 
 	cancel_work_sync(&tcm->suspend_work);
 	cancel_work_sync(&tcm->resume_work);
+	cancel_work_sync(&tcm->motion_filter_work);
+	cancel_delayed_work_sync(&tcm->set_report_rate_work);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	if (tcm->tbn_register_mask)

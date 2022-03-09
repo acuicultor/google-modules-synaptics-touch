@@ -480,6 +480,12 @@ struct syna_tcm {
 	pid_t proc_pid;
 	struct task_struct *proc_task;
 
+	int touch_count;
+	bool touch_report_rate_config;
+	bool next_report_rate_config;
+	int last_vrefresh_rate;
+	struct delayed_work set_report_rate_work;
+
 	/* flags */
 	int pwr_state;
 	bool slept_in_early_suspend;
