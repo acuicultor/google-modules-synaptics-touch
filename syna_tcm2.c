@@ -288,14 +288,19 @@ static void syna_dev_restore_feature_setting(struct syna_tcm *tcm)
 	syna_dev_set_heatmap_mode(tcm, true);
 
 	syna_tcm_set_dynamic_config(tcm->tcm_dev,
-				DC_ENABLE_PALM_REJECTION,
-				(tcm->enable_fw_palm & 0x01),
-				RESP_IN_POLLING);
+			DC_ENABLE_PALM_REJECTION,
+			(tcm->enable_fw_palm & 0x01),
+			RESP_IN_POLLING);
 
 	syna_tcm_set_dynamic_config(tcm->tcm_dev,
-				DC_ENABLE_GRIP_SUPPRESSION,
-				(tcm->enable_fw_grip & 0x01),
-				RESP_IN_POLLING);
+			DC_ENABLE_GRIP_SUPPRESSION,
+			(tcm->enable_fw_grip & 0x01),
+			RESP_IN_POLLING);
+
+	syna_tcm_set_dynamic_config(tcm->tcm_dev,
+			DC_COMPRESSION_THRESHOLD,
+			tcm->hw_if->compression_threhsold,
+			RESP_IN_POLLING);
 }
 /* Update a state machine used to toggle control of the touch IC's motion
  * filter.
