@@ -1610,17 +1610,22 @@ static void syna_dev_reflash_startup_work(struct work_struct *work)
 			fw_image,
 			fw_image_size,
 			RESP_IN_ATTN,
-			false);
+			tcm->force_reflash);
 #else
 	/* do firmware update for the common device */
 	retval = syna_tcm_do_fw_update(tcm_dev,
 			fw_image,
 			fw_image_size,
 			RESP_IN_ATTN,
-			false);
+			tcm->force_reflash);
 #endif
 	if (retval < 0) {
-		LOGE("Fail to do reflash\n");
+		LOGE("Fail to do reflash, reflash_count = %d\n", tcm->reflash_count);
+		tcm->force_reflash = true;
+		if (tcm->reflash_count++ < 3) {
+			queue_delayed_work(tcm->reflash_workqueue, &tcm->reflash_work,
+				msecs_to_jiffies(STARTUP_REFLASH_DELAY_TIME_MS));
+		}
 		goto exit;
 	}
 
@@ -2470,6 +2475,8 @@ static int syna_dev_connect(struct syna_tcm *tcm)
 	 * create a delayed work to perform fw update during the startup time
 	 */
 #ifdef STARTUP_REFLASH
+	tcm->force_reflash = false;
+	tcm->reflash_count = 0;
 	tcm->reflash_workqueue =
 			create_singlethread_workqueue("syna_reflash");
 	INIT_DELAYED_WORK(&tcm->reflash_work, syna_dev_reflash_startup_work);

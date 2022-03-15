@@ -1976,6 +1976,7 @@ int syna_tcm_do_fw_update(struct tcm_dev *tcm_dev,
 		unsigned int wait_delay_ms, bool force_reflash)
 {
 	int retval;
+	int retval_reset;
 	enum update_area type = UPDATE_NONE;
 	struct tcm_reflash_data_blob reflash_data;
 	int app_status;
@@ -2067,9 +2068,10 @@ reflash:
 
 	retval = 0;
 reset:
-	retval = syna_tcm_reset(tcm_dev);
-	if (retval < 0) {
-		LOGE("Fail to do reset\n");
+	retval_reset = syna_tcm_reset(tcm_dev);
+	if (retval_reset < 0) {
+		LOGE("Fail to do reset, retval_reset = %d\n", retval_reset);
+		retval = retval_reset;
 		goto exit;
 	}
 

@@ -419,6 +419,8 @@ struct syna_tcm {
 	/* Workqueue used for fw update */
 	struct delayed_work reflash_work;
 	struct workqueue_struct *reflash_workqueue;
+	u8 reflash_count;
+	bool force_reflash;
 
 	struct work_struct suspend_work;
 	struct work_struct resume_work;
