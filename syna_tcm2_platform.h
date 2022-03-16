@@ -147,6 +147,7 @@ struct syna_hw_interface {
 	struct syna_hw_pwr_data bdata_pwr;
 	const char *fw_name;
 	int pixels_per_mm;
+	u16 compression_threhsold;
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	u32 offload_id;
 #endif

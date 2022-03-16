@@ -677,6 +677,23 @@ static int syna_spi_parse_dt(struct syna_hw_interface *hw_if,
 		hw_if->pixels_per_mm = 1;
 	}
 
+	prop = of_find_property(np, "synaptics,compression-threshold", NULL);
+	if (prop && prop->length) {
+		retval = of_property_read_u32(np, "synaptics,compression-threshold",
+				&value);
+		if (retval < 0) {
+			LOGE("Fail to read synaptics,compression-threshold\n");
+			return retval;
+		}
+
+		hw_if->compression_threhsold = value;
+	} else {
+		/*
+		 * Set default as 15.
+		 */
+		hw_if->compression_threhsold = 15;
+	}
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	hw_if->offload_id = 0;
 	retval = of_property_read_u8_array(np, "synaptics,touch_offload_id",
