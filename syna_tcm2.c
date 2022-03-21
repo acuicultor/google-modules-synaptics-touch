@@ -951,15 +951,37 @@ exit:
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 static void syna_offload_set_running(struct syna_tcm *tcm, bool running)
 {
+	int next_enable_fw_grip = 0;
+	int next_enable_fw_palm = 0;
 	if (tcm->offload.offload_running != running) {
 		tcm->offload.offload_running = running;
 	}
-	if (tcm->offload.offload_running == tcm->enable_fw_grip && tcm->enable_fw_grip < 2) {
-		tcm->enable_fw_grip = tcm->offload.offload_running ? 0 : 1;
+
+	/*
+	 * Disable firmware grip_suppression/palm_rejection when offload is running and
+	 * upper layer grip_suppression/palm_rejection is enabled.
+	 */
+	next_enable_fw_grip = (running && (tcm->offload.config.filter_grip == 1)) ? 0 : 1;
+	next_enable_fw_palm = (running && (tcm->offload.config.filter_palm == 1)) ? 0 : 1;
+
+	if (next_enable_fw_grip != tcm->enable_fw_grip && tcm->enable_fw_grip < 2) {
+		tcm->enable_fw_grip = next_enable_fw_grip;
 		syna_tcm_set_dynamic_config(tcm->tcm_dev,
 				DC_ENABLE_GRIP_SUPPRESSION,
 				tcm->enable_fw_grip,
 				RESP_IN_POLLING);
+		LOGI("%s firmware grip suppression.\n",
+			(tcm->enable_fw_grip == 1) ? "Enable" : "Disable");
+	}
+
+	if (next_enable_fw_palm != tcm->enable_fw_palm && tcm->enable_fw_palm < 2) {
+		tcm->enable_fw_palm = next_enable_fw_palm;
+		syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_ENABLE_PALM_REJECTION,
+				tcm->enable_fw_palm,
+				RESP_IN_POLLING);
+		LOGI("%s firmware palm rejection.\n",
+			(tcm->enable_fw_palm == 1) ? "Enable" : "Disable");
 	}
 }
 
