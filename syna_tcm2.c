@@ -970,13 +970,14 @@ static void syna_offload_report(void *handle,
 	bool touch_down = 0;
 	int i;
 	int touch_count = 0;
+	int tool_type;
 
 	syna_pal_mutex_lock(&tcm->tp_event_mutex);
 
 	input_set_timestamp(tcm->input_dev, report->timestamp);
 
 	for (i = 0; i < MAX_COORDS; i++) {
-		if (report->coords[i].status == COORD_STATUS_FINGER) {
+		if (report->coords[i].status != COORD_STATUS_INACTIVE) {
 			input_mt_slot(tcm->input_dev, i);
 			touch_count++;
 			touch_down = 1;
@@ -984,8 +985,19 @@ static void syna_offload_report(void *handle,
 					 touch_down);
 			input_report_key(tcm->input_dev, BTN_TOOL_FINGER,
 					 touch_down);
+			switch (report->coords[i].status) {
+			case COORD_STATUS_EDGE:
+			case COORD_STATUS_PALM:
+			case COORD_STATUS_CANCEL:
+				tool_type = MT_TOOL_PALM;
+				break;
+			case COORD_STATUS_FINGER:
+			default:
+				tool_type = MT_TOOL_FINGER;
+				break;
+			}
 			input_mt_report_slot_state(tcm->input_dev,
-						   MT_TOOL_FINGER, 1);
+						   tool_type, 1);
 			input_report_abs(tcm->input_dev, ABS_MT_POSITION_X,
 					 report->coords[i].x);
 			input_report_abs(tcm->input_dev, ABS_MT_POSITION_Y,
