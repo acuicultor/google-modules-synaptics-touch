@@ -1082,8 +1082,9 @@ static int syna_dev_ptflib_decoder(struct syna_tcm *tcm, const u16 *in_array,
 
 	if (i != in_array_size || out_array_size != out_array_max_size) {
 		LOGE("%d (in=%d, out=%d, rep=%d, out_max=%d).\n",
-			   i, in_array_size, out_array_size,
-			   repetition, out_array_max_size);
+			i, in_array_size, out_array_size,
+			repetition, out_array_max_size);
+		memset(out_array, 0, out_array_max_size * sizeof(u16));
 		return -1;
 	}
 
@@ -1114,7 +1115,7 @@ static void syna_populate_coordinate_channel(struct syna_tcm *tcm,
 
 static void syna_populate_mutual_channel(struct syna_tcm *tcm,
 					 struct touch_offload_frame *frame,
-					 int channel)
+					 int channel, bool has_heatmap)
 {
 	int i, j;
 	struct TouchOffloadData2d *mutual_strength =
@@ -1127,24 +1128,30 @@ static void syna_populate_mutual_channel(struct syna_tcm *tcm,
 		TOUCH_OFFLOAD_FRAME_SIZE_2D(mutual_strength->rx_size,
 					    mutual_strength->tx_size);
 
-	/* for 'heat map' ($c3) report,
-	 * report data has been stored at tcm->event_data.buf;
-	 * while, tcm->event_data.data_length is the size of data
-	 */
-	syna_dev_ptflib_decoder(tcm,
-		&((u16 *) tcm->event_data.buf)[tcm->tcm_dev->rows + tcm->tcm_dev->cols],
-		(tcm->event_data.data_length) / 2 - tcm->tcm_dev->rows - tcm->tcm_dev->cols,
-		tcm->heatmap_buff,
-		tcm->tcm_dev->rows * tcm->tcm_dev->cols);
+	if (has_heatmap) {
+		/* for 'heat map' ($c3) report,
+		 * report data has been stored at tcm->event_data.buf;
+		 * while, tcm->event_data.data_length is the size of data
+		 */
+		syna_dev_ptflib_decoder(tcm,
+		    &((u16 *) tcm->event_data.buf)[tcm->tcm_dev->rows + tcm->tcm_dev->cols],
+		    (tcm->event_data.data_length) / 2 - tcm->tcm_dev->rows - tcm->tcm_dev->cols,
+		    tcm->heatmap_buff,
+		    tcm->tcm_dev->rows * tcm->tcm_dev->cols);
 
-	for (i = 0; i < tcm->tcm_dev->cols; i++) {
-		for (j = 0; j < tcm->tcm_dev->rows; j++) {
-			((u16 *) mutual_strength->data)[tcm->tcm_dev->rows * i + j] =
-				tcm->heatmap_buff[tcm->tcm_dev->cols * j + i];
+		for (i = 0; i < tcm->tcm_dev->cols; i++) {
+			for (j = 0; j < tcm->tcm_dev->rows; j++) {
+				((u16 *) mutual_strength->data)[tcm->tcm_dev->rows * i + j] =
+					tcm->heatmap_buff[tcm->tcm_dev->cols * j + i];
+			}
 		}
+		memcpy(tcm->heatmap_buff, (u16 *) mutual_strength->data,
+			tcm->tcm_dev->cols * tcm->tcm_dev->rows * sizeof(u16));
+	} else {
+		memset(mutual_strength->data, 0,
+			tcm->tcm_dev->cols * tcm->tcm_dev->rows * sizeof(u16));
 	}
-	memcpy(tcm->heatmap_buff, (u16 *) mutual_strength->data,
-		   tcm->tcm_dev->cols * tcm->tcm_dev->rows * sizeof(u16));
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	tcm->heatmap_decoded = true;
 #endif
@@ -1152,7 +1159,7 @@ static void syna_populate_mutual_channel(struct syna_tcm *tcm,
 
 static void syna_populate_self_channel(struct syna_tcm *tcm,
 				       struct touch_offload_frame *frame,
-				       int channel)
+				       int channel, bool has_heatmap)
 {
 	int i;
 	struct TouchOffloadData1d *self_strength =
@@ -1164,15 +1171,19 @@ static void syna_populate_self_channel(struct syna_tcm *tcm,
 	self_strength->header.channel_size =
 		TOUCH_OFFLOAD_FRAME_SIZE_1D(self_strength->rx_size,
 					    self_strength->tx_size);
-
-	for (i = 0; i < tcm->tcm_dev->rows; i++) {
-		((u16 *) self_strength->data)[i] =
+	if (has_heatmap) {
+		for (i = 0; i < tcm->tcm_dev->rows; i++) {
+			((u16 *) self_strength->data)[i] =
 				((u16 *) tcm->event_data.buf)[tcm->tcm_dev->cols + i];
-	}
+		}
 
-	for (i = 0; i < tcm->tcm_dev->cols; i++) {
-		((u16 *) self_strength->data)[tcm->tcm_dev->rows + i] =
+		for (i = 0; i < tcm->tcm_dev->cols; i++) {
+			((u16 *) self_strength->data)[tcm->tcm_dev->rows + i] =
 				((u16 *) tcm->event_data.buf)[i];
+		}
+	} else {
+		memset(self_strength->data, 0,
+			(tcm->tcm_dev->cols + tcm->tcm_dev->rows) * sizeof(u16));
 	}
 }
 
@@ -1190,11 +1201,9 @@ static void syna_populate_frame(struct syna_tcm *tcm, bool has_heatmap)
 		if (frame->channel_type[i] == TOUCH_DATA_TYPE_COORD) {
 			syna_populate_coordinate_channel(tcm, frame, i);
 		} else if ((frame->channel_type[i] & TOUCH_SCAN_TYPE_MUTUAL) != 0) {
-			if (has_heatmap)
-				syna_populate_mutual_channel(tcm, frame, i);
+			syna_populate_mutual_channel(tcm, frame, i, has_heatmap);
 		} else if ((frame->channel_type[i] & TOUCH_SCAN_TYPE_SELF) != 0) {
-			if (has_heatmap)
-				syna_populate_self_channel(tcm, frame, i);
+			syna_populate_self_channel(tcm, frame, i, has_heatmap);
 		}
 	}
 }
