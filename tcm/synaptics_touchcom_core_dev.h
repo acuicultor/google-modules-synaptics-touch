@@ -44,7 +44,7 @@
 #include "syna_tcm2_platform.h"
 
 
-#define SYNA_TCM_CORE_LIB_VERSION 0x0118
+#define SYNA_TCM_CORE_LIB_VERSION 0x0119
 
 
 /**
@@ -515,6 +515,7 @@ struct tcm_objects_data_blob {
 	unsigned int z;
 	unsigned int tx_pos;
 	unsigned int rx_pos;
+	unsigned int custom_data[5];
 };
 struct tcm_gesture_data_blob {
 	union {
@@ -533,6 +534,7 @@ struct tcm_gesture_data_blob {
 struct tcm_touch_data_blob {
 
 	/* for each active objects */
+	unsigned int obji;
 	unsigned int num_of_active_objects;
 	struct tcm_objects_data_blob object_data[MAX_NUM_OBJECTS];
 
@@ -982,7 +984,6 @@ static inline void syna_tcm_buf_lock(struct tcm_buffer *pbuf)
 {
 	if (pbuf->ref_cnt != 0) {
 		LOGE("Buffer access out-of balance, %d\n", pbuf->ref_cnt);
-		return;
 	}
 
 	syna_pal_mutex_lock(&pbuf->buf_mutex);
@@ -1003,7 +1004,6 @@ static inline void syna_tcm_buf_unlock(struct tcm_buffer *pbuf)
 {
 	if (pbuf->ref_cnt != 1) {
 		LOGE("Buffer access out-of balance, %d\n", pbuf->ref_cnt);
-		return;
 	}
 
 	pbuf->ref_cnt--;

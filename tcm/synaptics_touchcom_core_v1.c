@@ -1079,10 +1079,13 @@ check_response:
 	if (resp_code)
 		*resp_code = tcm_msg->status_report_code;
 
-	if (tcm_msg->response_code != STATUS_OK)
+	if (tcm_msg->response_code != STATUS_OK) {
+		LOGE("Received code 0x%02x (command 0x%02x)\n",
+			tcm_msg->status_report_code, tcm_msg->command);
 		retval = _EIO;
-	else
+	} else {
 		retval = 0;
+	}
 
 exit:
 	tcm_msg->command = CMD_NONE;

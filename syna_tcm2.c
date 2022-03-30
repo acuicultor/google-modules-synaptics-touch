@@ -440,29 +440,47 @@ static int syna_dev_parse_custom_touch_data_cb(const unsigned char code,
 		const unsigned char *report, unsigned int *report_offset,
 		unsigned int report_size, void *callback_data)
 {
-	/**
-	 * sample code to demonstrate how to parse the custom touch entity
-	 * from the touch report, additional modifications will be needed.
-	 *
-	 * struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
-	 * unsigned int data;
-	 * unsigned int bits;
-	 *
-	 * switch (code) {
-	 * case CUSTOM_ENTITY_CODE:
-	 *		bits = config[(*config_offset)++];
-	 *		syna_tcm_get_touch_data(report, report_size,
-	 *				*report_offset, bits, &data);
-	 *
-	 *		*report_offset += bits;
-	 *		return bits;
-	 *	default:
-	 *		LOGW("Unknown touch config code (idx:%d 0x%02x)\n",
-	 *			*config_offset, code);
-	 *		return (-EINVAL);
-	 *	}
-	 *
-	 */
+	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
+	struct tcm_touch_data_blob *touch_data;
+	struct tcm_objects_data_blob *object_data;
+	unsigned int data;
+	unsigned int bits;
+
+	touch_data = &tcm->tp_data;
+	object_data = touch_data->object_data;
+
+	switch (code) {
+	case TOUCH_ENTITY_CUSTOM_ANGLE:
+		bits = config[(*config_offset)++];
+		syna_tcm_get_touch_data(report, report_size,
+				*report_offset, bits, &data);
+
+		object_data[touch_data->obji].custom_data[CUSTOM_DATA_ANGLE] = data;
+
+		*report_offset += bits;
+		return bits;
+	case TOUCH_ENTITY_CUSTOM_MAJOR:
+		bits = config[(*config_offset)++];
+		syna_tcm_get_touch_data(report, report_size,
+				*report_offset, bits, &data);
+
+		object_data[touch_data->obji].custom_data[CUSTOM_DATA_MAJOR] = data;
+
+		*report_offset += bits;
+		return bits;
+	case TOUCH_ENTITY_CUSTOM_MINOR:
+		bits = config[(*config_offset)++];
+		syna_tcm_get_touch_data(report, report_size,
+				*report_offset, bits, &data);
+
+		object_data[touch_data->obji].custom_data[CUSTOM_DATA_MINOR] = data;
+		*report_offset += bits;
+		return bits;
+	default:
+		LOGW("Unknown touch config code (idx:%d 0x%02x)\n",
+			*config_offset, code);
+		return (-EINVAL);
+	}
 
 	return (-EINVAL);
 }
@@ -630,8 +648,15 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 	unsigned int x;
 	unsigned int y;
 	unsigned int z;
+#ifdef ENABLE_CUSTOM_TOUCH_ENTITY
+	int major;
+	int minor;
+	int angle;
+#else
 	int wx;
 	int wy;
+#endif
+
 	unsigned int status;
 	unsigned int touch_count;
 	struct input_dev *input_dev = tcm->input_dev;
@@ -694,12 +719,22 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 		case PALM:
 			x = object_data[idx].x_pos;
 			y = object_data[idx].y_pos;
+#ifdef ENABLE_CUSTOM_TOUCH_ENTITY
+			major = object_data[idx].custom_data[CUSTOM_DATA_MAJOR];
+			minor = object_data[idx].custom_data[CUSTOM_DATA_MINOR];
+			angle = object_data[idx].custom_data[CUSTOM_DATA_ANGLE];
+			LOGD("Finger %d: major = %d, minor = %d, angle = %d.\n",
+				idx, major, minor, (s8) angle);
+			/* Report major and minor in display pixels. */
+			major = major * tcm->hw_if->pixels_per_mm;
+			minor = minor * tcm->hw_if->pixels_per_mm;
+#else
 			wx = object_data[idx].x_width;
 			wy = object_data[idx].y_width;
-
 			/* Report major and minor in display pixels. */
 			wx = wx * tcm->hw_if->pixels_per_mm;
 			wy = wy * tcm->hw_if->pixels_per_mm;
+#endif
 
 			if (object_data[idx].z == 0) {
 				z = 1;
@@ -723,8 +758,14 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 			tcm->offload.coords[idx].x = x;
 			tcm->offload.coords[idx].y = y;
 			tcm->offload.coords[idx].pressure = z;
-			tcm->offload.coords[idx].major = wx;
-			tcm->offload.coords[idx].minor = wy;
+#ifdef ENABLE_CUSTOM_TOUCH_ENTITY
+			tcm->offload.coords[idx].major = major;
+			tcm->offload.coords[idx].minor = minor;
+			tcm->offload.coords[idx].rotation = (s16) (((s8) angle) * 2048 / 45);
+#else
+			tcm->offload.coords[idx].major = MAX(wx, wy);
+			tcm->offload.coords[idx].minor = MIN(wx, wy);
+#endif
 			if (!tcm->offload.offload_running) {
 #endif
 #ifdef TYPE_B_PROTOCOL
@@ -738,10 +779,19 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 			input_report_abs(input_dev, ABS_MT_POSITION_Y, y);
 			input_report_abs(input_dev, ABS_MT_PRESSURE, z);
 #ifdef REPORT_TOUCH_WIDTH
+#ifdef ENABLE_CUSTOM_TOUCH_ENTITY
+			input_report_abs(input_dev,
+					ABS_MT_TOUCH_MAJOR, major);
+			input_report_abs(input_dev,
+					ABS_MT_TOUCH_MINOR, minor);
+			input_report_abs(input_dev,
+					ABS_MT_ORIENTATION, (s16) (((s8) angle) * 2048 / 45));
+#else
 			input_report_abs(input_dev,
 					ABS_MT_TOUCH_MAJOR, MAX(wx, wy));
 			input_report_abs(input_dev,
 					ABS_MT_TOUCH_MINOR, MIN(wx, wy));
+#endif
 #endif
 #ifndef TYPE_B_PROTOCOL
 			input_mt_sync(input_dev);
@@ -855,6 +905,9 @@ static int syna_dev_create_input_device(struct syna_tcm *tcm)
 	input_set_abs_params(input_dev,
 			ABS_MT_TOUCH_MINOR, 0, tcm_dev->max_y, 0, 0);
 #endif
+
+	input_set_abs_params(input_dev,
+			ABS_MT_ORIENTATION, -4096, 4096, 0, 0);
 
 	tcm->input_dev_params.max_x = tcm_dev->max_x;
 	tcm->input_dev_params.max_y = tcm_dev->max_y;
@@ -1063,6 +1116,8 @@ static void syna_offload_report(void *handle,
 					 report->coords[i].minor);
 			input_report_abs(tcm->input_dev, ABS_MT_PRESSURE,
 					 report->coords[i].pressure);
+			input_report_abs(tcm->input_dev, ABS_MT_ORIENTATION,
+					 report->coords[i].rotation);
 		} else {
 			input_mt_slot(tcm->input_dev, i);
 			input_report_abs(tcm->input_dev, ABS_MT_PRESSURE, 0);
@@ -2824,6 +2879,7 @@ static int syna_dev_probe(struct platform_device *pdev)
 	tcm->offload.caps.noise_reporting = false;
 	tcm->offload.caps.cancel_reporting = false;
 	tcm->offload.caps.size_reporting = true;
+	tcm->offload.caps.rotation_reporting = true;
 	tcm->offload.caps.filter_grip = true;
 	tcm->offload.caps.filter_palm = true;
 	tcm->offload.caps.num_sensitivity_settings = 1;

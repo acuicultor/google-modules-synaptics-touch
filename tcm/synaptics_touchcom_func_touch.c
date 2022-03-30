@@ -164,6 +164,8 @@ static int syna_tcm_get_gesture_data(const unsigned char *report,
 	}
 
 	switch (gesture_id) {
+	case GESTURE_ID_NONE:
+		break;
 	case GESTURE_ID_DOUBLE_TAP:
 	case GESTURE_ID_ACTIVE_TAP_AND_HOLD:
 	case GESTURE_ID_ACTIVE_SINGLE_TAP:
@@ -334,6 +336,7 @@ int syna_tcm_parse_touch_report(struct tcm_dev *tcm_dev,
 				return retval;
 			}
 			obj = data;
+			touch_data->obji = data;
 			offset += bits;
 			break;
 		case TOUCH_REPORT_OBJECT_N_CLASSIFICATION:
