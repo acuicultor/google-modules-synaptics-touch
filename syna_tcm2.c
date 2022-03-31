@@ -2016,6 +2016,7 @@ static int syna_dev_suspend(struct device *dev)
 	struct syna_tcm *tcm = dev_get_drvdata(dev);
 	struct syna_hw_interface *hw_if = tcm->hw_if;
 	bool irq_disabled = true;
+	unsigned char status;
 
 	/* exit directly if device is already in suspend state */
 	if (tcm->pwr_state != PWR_ON)
@@ -2032,8 +2033,22 @@ static int syna_dev_suspend(struct device *dev)
 	/* enter power saved mode if power is not off */
 	retval = syna_dev_enter_lowpwr_sensing(tcm);
 	if (retval < 0) {
-		LOGE("Fail to enter suspended power mode\n");
-		return retval;
+		LOGE("Fail to enter suspended power mode, reset and retry.\n");
+		if (hw_if->ops_hw_reset) {
+			hw_if->ops_hw_reset(hw_if);
+			retval = syna_tcm_get_event_data(tcm->tcm_dev,
+				&status, NULL);
+			if ((retval < 0) || (status != REPORT_IDENTIFY)) {
+				LOGE("Fail to complete hw reset, ret = %d, status = %d\n",
+				     retval, status);
+			}
+			return retval;
+		}
+		retval = syna_dev_enter_lowpwr_sensing(tcm);
+		if (retval < 0) {
+			LOGE("Fail to enter suspended power mode after reset.\n");
+			return retval;
+		}
 	}
 	tcm->pwr_state = LOW_PWR;
 #else

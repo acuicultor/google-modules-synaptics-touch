@@ -89,6 +89,8 @@ static void syna_spi_hw_reset(struct syna_hw_interface *hw_if)
 {
 	struct syna_hw_rst_data *rst = &hw_if->bdata_rst;
 
+	LOGI("Trigger hardware reset.\n");
+
 	if (rst->reset_gpio >= 0) {
 		gpio_set_value(rst->reset_gpio, rst->reset_on_state);
 		syna_pal_sleep_ms(rst->reset_active_ms);
