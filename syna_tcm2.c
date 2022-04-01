@@ -1060,6 +1060,7 @@ static int syna_dev_ptflib_decoder(struct syna_tcm *tcm, const u16 *in_array,
 	int out_array_size = 0;
 	u16 prev_word = 0;
 	u16 repetition = 0;
+	u16 *temp_out_array = out_array;
 
 	for (i = 0; i < in_array_size; i++) {
 		u16 curr_word = in_array[i];
@@ -1068,13 +1069,13 @@ static int syna_dev_ptflib_decoder(struct syna_tcm *tcm, const u16 *in_array,
 			if (out_array_size + repetition > out_array_max_size)
 				break;
 			for (j = 0; j < repetition; j++) {
-				*out_array++ = prev_word;
+				*temp_out_array++ = prev_word;
 				out_array_size++;
 			}
 		} else {
 			if (out_array_size >= out_array_max_size)
 				break;
-			*out_array++ = curr_word;
+			*temp_out_array++ = curr_word;
 			out_array_size++;
 			prev_word = curr_word;
 		}
