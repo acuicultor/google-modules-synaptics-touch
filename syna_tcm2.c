@@ -311,12 +311,12 @@ static int syna_update_motion_filter(struct syna_tcm *tcm, u8 touches)
 	const u32 mf_timeout_ms = 500;
 	u8 next_state;
 
-	if (tcm->mf_mode == 0) {
+	if (tcm->mf_mode == MF_OFF) {
 		if (touches != 0)
 			next_state = MF_UNFILTERED;
 		else
 			next_state = MF_FILTERED;
-	} else if (tcm->mf_mode == 1) {
+	} else if (tcm->mf_mode == MF_DYNAMIC) {
 		/* Determine the next filter state. The motion filter is enabled by
 		 * default and it is disabled while a single finger is touching the
 		 * screen. If another finger is touched down or if a timeout expires,
@@ -347,11 +347,11 @@ static int syna_update_motion_filter(struct syna_tcm *tcm, u8 touches)
 			}
 			break;
 		}
-	} else if (tcm->mf_mode == 2) {
+	} else if (tcm->mf_mode == MF_ON) {
 		next_state = MF_FILTERED;
 	} else {
-		/* Set 0 as default when an invalid value is found. */
-		tcm->mf_mode = 0;
+		/* Set 1(Dynamic) as default when an invalid value is found. */
+		tcm->mf_mode = MF_DYNAMIC;
 		return 0;
 	}
 
@@ -2776,7 +2776,7 @@ static int syna_dev_probe(struct platform_device *pdev)
 #endif
 
 	/* init motion filter mode */
-	tcm->mf_mode = 0;
+	tcm->mf_mode = MF_DYNAMIC;
 
 	INIT_WORK(&tcm->motion_filter_work, syna_motion_filter_work);
 

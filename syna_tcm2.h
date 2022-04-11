@@ -312,6 +312,17 @@ typedef enum {
 	MF_FILTERED_LOCKED	= 2
 } motion_filter_state_t;
 
+/* Motion filter mode.
+ *  MF_OFF    : 0 = Always unfilter.
+ *  MF_DYNAMIC: 1 = Dynamic change motion filter.
+ *  MF_ON     : 2 = Always filter by touch FW.
+ */
+enum MF_MODE {
+    MF_OFF,
+    MF_DYNAMIC,
+    MF_ON,
+};
+
 #if defined(ENABLE_HELPER)
 /**
  * @brief: Tasks for helper
