@@ -1934,6 +1934,9 @@ static int syna_dev_resume(struct device *dev)
 	if (hw_if->udfps_x != 0 && hw_if->udfps_y != 0)
 		syna_check_finger_status(tcm);
 
+	/* clear all input events  */
+	syna_dev_free_input_events(tcm);
+
 #ifdef RESET_ON_RESUME
 	LOGI("Do reset on resume\n");
 
