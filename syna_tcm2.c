@@ -2026,7 +2026,9 @@ static int syna_dev_resume(struct device *dev)
 	struct syna_tcm *tcm = dev_get_drvdata(dev);
 	struct syna_hw_interface *hw_if = tcm->hw_if;
 	bool irq_enabled = true;
+#ifdef RESET_ON_RESUME
 	unsigned char status;
+#endif
 
 	/* exit directly if device isn't in suspend state */
 	if (tcm->pwr_state == PWR_ON)

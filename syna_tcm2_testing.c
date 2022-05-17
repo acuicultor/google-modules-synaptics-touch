@@ -1136,6 +1136,166 @@ exit:
 static struct kobj_attribute kobj_attr_pt16 =
 	__ATTR(pt16, 0444, syna_testing_pt16_show, NULL);
 
+
+/**
+ * syna_testing_pt_tag_moisture()
+ *
+ * Sample code to perform Tags Moisture (RID30) testing
+ *
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static int syna_testing_pt_tag_moisture(struct syna_tcm *tcm, struct tcm_buffer *test_data)
+{
+	int retval;
+	bool result = false;
+	unsigned char code;
+	int attempt = 0;
+	short *data_ptr = NULL;
+	short limit;
+	int i, j, rows, cols;
+
+	rows = tcm->tcm_dev->rows;
+	cols = tcm->tcm_dev->cols;
+
+	LOGI("Start testing\n");
+
+	/* do test in polling; disable irq */
+	if (tcm->hw_if->ops_enable_irq)
+		tcm->hw_if->ops_enable_irq(tcm->hw_if, false);
+
+	syna_tcm_set_dynamic_config(tcm->tcm_dev, DC_DISABLE_DOZE, 1, RESP_IN_POLLING);
+
+	retval = syna_tcm_enable_report(tcm->tcm_dev, 30, true);
+	if (retval < 0) {
+		LOGE("Fail to enable RID30\n");
+		result = false;
+		goto exit;
+	}
+
+	for (attempt = 0; attempt < 3; attempt++) {
+		retval = syna_tcm_get_event_data(tcm->tcm_dev, &code,
+			test_data);
+		if ((retval >= 0) && (code == 30))
+			break;
+	}
+
+	if ((retval < 0) || (code != 30)) {
+		LOGE("Fail to get a frame of RID30 to test\n");
+		result = false;
+		goto exit;
+	}
+
+	if (test_data->data_length % (rows * cols) != 0) {
+		LOGE("Invalid frame size of RID30, %d\n", test_data->data_length);
+		result = false;
+		goto exit;
+	}
+
+	retval = syna_tcm_enable_report(tcm->tcm_dev, 30, false);
+	if (retval < 0) {
+		LOGE("Fail to disable RID30\n");
+		result = false;
+		goto exit;
+	}
+
+	/* compare to the limits */
+	result = true;
+	data_ptr = (short *)&test_data->buf[0];
+	for (i = 0; i < rows; i++) {
+		for (j = 0; j < cols; j++) {
+			if (*data_ptr < 0)
+				continue;
+
+			limit = pt_moisture_limits[i * LIMIT_BOUNDARY + j];
+			if (*data_ptr > limit) {
+				LOGE("Fail on (%2d,%2d)=%5d, limits_hi:%4d\n",
+					i, j, *data_ptr, limit);
+				result = false;
+			}
+			data_ptr++;
+		}
+	}
+
+exit:
+	syna_tcm_set_dynamic_config(tcm->tcm_dev, DC_DISABLE_DOZE, 0, RESP_IN_POLLING);
+
+	LOGI("Result = %s\n", (result)?"pass":"fail");
+
+	/* recover the irq */
+	if (tcm->hw_if->ops_enable_irq)
+		tcm->hw_if->ops_enable_irq(tcm->hw_if, true);
+
+	return ((result) ? 0 : -1);
+}
+
+/**
+ * syna_testing_pt_moisture_show()
+ *
+ * Attribute to show the result of Tags Moisture (RID30) to the console.
+ *
+ * @param
+ *    [ in] kobj:  an instance of kobj
+ *    [ in] attr:  an instance of kobj attribute structure
+ *    [out] buf:  string buffer shown on console
+ *
+ * @return
+ *    on success, number of characters being output;
+ *    otherwise, negative value on error.
+ */
+static ssize_t syna_testing_pt_moisture_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	int retval, i, j;
+	short *data_ptr = NULL;
+	unsigned int count = 0;
+	struct syna_tcm *tcm = g_tcm_ptr;
+	struct tcm_buffer test_data;
+
+	if (!tcm->is_connected) {
+		count = scnprintf(buf, PAGE_SIZE,
+				"Device is NOT connected\n");
+		goto exit;
+	}
+
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, true);
+
+	syna_tcm_buf_init(&test_data);
+
+	retval = syna_testing_pt_tag_moisture(tcm, &test_data);
+
+	count += scnprintf(buf, PAGE_SIZE,
+			"TEST Tags Moisture: %s\n",
+			(retval < 0) ? "fail" : "pass");
+
+	count += scnprintf(buf + count, PAGE_SIZE - count, "%d %d\n",
+			tcm->tcm_dev->cols, tcm->tcm_dev->rows);
+
+	if (retval == 0) {
+		data_ptr = (short *)&(test_data.buf[0]);
+		for (i = 0; i < tcm->tcm_dev->rows; i++) {
+			for (j = 0; j < tcm->tcm_dev->cols; j++) {
+				count += scnprintf(buf + count, PAGE_SIZE - count, "%d ",
+						data_ptr[i * tcm->tcm_dev->cols + j]);
+			}
+			count += scnprintf(buf + count, PAGE_SIZE - count, "\n");
+		}
+	}
+
+	syna_tcm_buf_release(&test_data);
+
+	syna_set_bus_ref(tcm, SYNA_BUS_REF_SYSFS, false);
+
+exit:
+	return count;
+}
+
+static struct kobj_attribute kobj_attr_pt_tag_moisture =
+	__ATTR(pt_moisture, 0444, syna_testing_pt_moisture_show, NULL);
+
 /*
  * declaration of sysfs attributes
  */
@@ -1148,6 +1308,7 @@ static struct attribute *attrs[] = {
 	&kobj_attr_pt11.attr,
 	&kobj_attr_pt12.attr,
 	&kobj_attr_pt16.attr,
+	&kobj_attr_pt_tag_moisture.attr,
 	NULL,
 };
 
