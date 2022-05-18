@@ -277,7 +277,7 @@
  *
  *        Set "disable" in default
  */
-/* #define ENABLE_HELPER */
+#define ENABLE_HELPER
 
 /**
  * @brief: Power States

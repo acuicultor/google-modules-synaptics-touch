@@ -103,74 +103,6 @@ static unsigned char custom_touch_format[] = {
 	struct drm_panel *active_panel;
 #endif
 
-
-#if defined(ENABLE_HELPER)
-/**
- * syna_dev_reset_detected_cb()
- *
- * Callback to assign a task to helper thread.
- *
- * Please be noted that this function will be invoked in ISR so don't
- * issue another touchcomm command here.
- *
- * @param
- *    [ in] callback_data: pointer to caller data
- *
- * @return
- *    on success, 0 or positive value; otherwise, negative value on error.
- */
-static void syna_dev_reset_detected_cb(void *callback_data)
-{
-	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
-
-	if (!tcm->helper.workqueue) {
-		LOGW("No helper thread created\n");
-		return;
-	}
-
-#ifdef RESET_ON_RESUME
-	if (tcm->pwr_state != PWR_ON)
-		return;
-#endif
-
-	if (ATOMIC_GET(tcm->helper.task) == HELP_NONE) {
-		ATOMIC_SET(tcm->helper.task, HELP_RESET_DETECTED);
-
-		queue_work(tcm->helper.workqueue, &tcm->helper.work);
-	}
-}
-/**
- * syna_dev_helper_work()
- *
- * According to the given task, perform the delayed work
- *
- * @param
- *    [ in] work: data for work used
- *
- * @return
- *    on success, 0; otherwise, negative value on error.
- */
-static void syna_dev_helper_work(struct work_struct *work)
-{
-	unsigned char task;
-	struct syna_tcm_helper *helper =
-			container_of(work, struct syna_tcm_helper, work);
-	struct syna_tcm *tcm =
-			container_of(helper, struct syna_tcm, helper);
-
-	task = ATOMIC_GET(helper->task);
-
-	switch (task) {
-	case HELP_RESET_DETECTED:
-		LOGD("Reset caught (device mode:0x%x)\n", tcm->tcm_dev->dev_mode);
-		break;
-	default:
-		break;
-	}
-
-	ATOMIC_SET(helper->task, HELP_NONE);
-}
-#endif
 /**
  * syna_dev_enable_lowpwr_gesture()
  *
@@ -279,34 +211,37 @@ static void syna_dev_set_heatmap_mode(struct syna_tcm *tcm, bool en)
  *
  * @param
  *    [ in] tcm: tcm driver handle
+ *    [ in] delay_ms_resp: delay time for response reading.
+ *                         a positive value presents the time for polling;
+ *                         or, set '0' or 'RESP_IN_ATTN' for ATTN driven
  *
  * @return
  *    on success, 0; otherwise, negative value on error.
  */
-static void syna_dev_restore_feature_setting(struct syna_tcm *tcm)
+static void syna_dev_restore_feature_setting(struct syna_tcm *tcm, unsigned int delay_ms_resp)
 {
 	syna_dev_set_heatmap_mode(tcm, true);
 
 	syna_tcm_set_dynamic_config(tcm->tcm_dev,
 			DC_ENABLE_PALM_REJECTION,
 			(tcm->enable_fw_palm & 0x01),
-			RESP_IN_POLLING);
+			delay_ms_resp);
 
 	syna_tcm_set_dynamic_config(tcm->tcm_dev,
 			DC_ENABLE_GRIP_SUPPRESSION,
 			(tcm->enable_fw_grip & 0x01),
-			RESP_IN_POLLING);
+			delay_ms_resp);
 
 	syna_tcm_set_dynamic_config(tcm->tcm_dev,
 			DC_COMPRESSION_THRESHOLD,
 			tcm->hw_if->compression_threhsold,
-			RESP_IN_POLLING);
+			delay_ms_resp);
 
 	if (tcm->hw_if->dynamic_report_rate) {
 		syna_tcm_set_dynamic_config(tcm->tcm_dev,
 				DC_REPORT_RATE_SWITCH,
 				tcm->touch_report_rate_config,
-				RESP_IN_POLLING);
+				delay_ms_resp);
 	}
 }
 
@@ -409,6 +344,75 @@ static void syna_set_report_rate_work(struct work_struct *work)
 	LOGI("Set touch report rate as %dHz",
 		(tcm->touch_report_rate_config == CONFIG_HIGH_REPORT_RATE) ? 240 : 120);
 }
+
+#if defined(ENABLE_HELPER)
+/**
+ * syna_dev_reset_detected_cb()
+ *
+ * Callback to assign a task to helper thread.
+ *
+ * Please be noted that this function will be invoked in ISR so don't
+ * issue another touchcomm command here.
+ *
+ * @param
+ *    [ in] callback_data: pointer to caller data
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
+ */
+static void syna_dev_reset_detected_cb(void *callback_data)
+{
+	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
+
+	if (!tcm->helper.workqueue) {
+		LOGW("No helper thread created\n");
+		return;
+	}
+
+#ifdef RESET_ON_RESUME
+	if (tcm->pwr_state != PWR_ON)
+		return;
+#endif
+
+	if (ATOMIC_GET(tcm->helper.task) == HELP_NONE) {
+		ATOMIC_SET(tcm->helper.task, HELP_RESET_DETECTED);
+
+		queue_work(tcm->helper.workqueue, &tcm->helper.work);
+	}
+}
+/**
+ * syna_dev_helper_work()
+ *
+ * According to the given task, perform the delayed work
+ *
+ * @param
+ *    [ in] work: data for work used
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static void syna_dev_helper_work(struct work_struct *work)
+{
+	unsigned char task;
+	struct syna_tcm_helper *helper =
+			container_of(work, struct syna_tcm_helper, work);
+	struct syna_tcm *tcm =
+			container_of(helper, struct syna_tcm, helper);
+
+	task = ATOMIC_GET(helper->task);
+
+	switch (task) {
+	case HELP_RESET_DETECTED:
+		LOGI("Reset caught (device mode:0x%x)\n", tcm->tcm_dev->dev_mode);
+		syna_dev_restore_feature_setting(tcm, RESP_IN_ATTN);
+		break;
+	default:
+		break;
+	}
+
+	ATOMIC_SET(helper->task, HELP_NONE);
+}
+#endif
 
 #ifdef ENABLE_CUSTOM_TOUCH_ENTITY
 /**
@@ -2101,7 +2105,7 @@ static int syna_dev_resume(struct device *dev)
 		goto exit;
 	}
 
-	syna_dev_restore_feature_setting(tcm);
+	syna_dev_restore_feature_setting(tcm, RESP_IN_POLLING);
 
 	retval = 0;
 
@@ -2939,7 +2943,7 @@ static int syna_dev_probe(struct platform_device *pdev)
 
 	tcm->enable_fw_grip = 0x00;
 	tcm->enable_fw_palm = 0x01;
-	syna_dev_restore_feature_setting(tcm);
+	syna_dev_restore_feature_setting(tcm, RESP_IN_POLLING);
 
 #if defined(USE_DRM_BRIDGE)
 	retval = syna_register_panel_bridge(tcm);
