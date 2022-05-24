@@ -314,6 +314,11 @@ static void syna_motion_filter_work(struct work_struct *work)
 {
 	struct syna_tcm *tcm = container_of(work, struct syna_tcm, motion_filter_work);
 
+	if (tcm->pwr_state != PWR_ON) {
+		LOGI("Touch is already off.");
+		return;
+	}
+
 	/* Send command to update filter state */
 	LOGD("setting motion filter = %s.\n",
 		 tcm->set_continuously_report ? "false" : "true");
@@ -329,6 +334,11 @@ static void syna_set_report_rate_work(struct work_struct *work)
 	struct delayed_work *delayed_work;
 	delayed_work = container_of(work, struct delayed_work, work);
 	tcm = container_of(delayed_work, struct syna_tcm, set_report_rate_work);
+
+	if (tcm->pwr_state != PWR_ON) {
+		LOGI("Touch is already off.");
+		return;
+	}
 
 	if (tcm->touch_count != 0) {
 		queue_delayed_work(tcm->event_wq, &tcm->set_report_rate_work,
@@ -399,6 +409,11 @@ static void syna_dev_helper_work(struct work_struct *work)
 	struct syna_tcm *tcm =
 			container_of(helper, struct syna_tcm, helper);
 
+	if (tcm->pwr_state != PWR_ON) {
+		LOGI("Touch is already off.");
+		goto exit;
+	}
+
 	task = ATOMIC_GET(helper->task);
 
 	switch (task) {
@@ -410,6 +425,7 @@ static void syna_dev_helper_work(struct work_struct *work)
 		break;
 	}
 
+exit:
 	ATOMIC_SET(helper->task, HELP_NONE);
 }
 #endif
