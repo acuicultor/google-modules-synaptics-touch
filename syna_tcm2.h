@@ -269,7 +269,7 @@
  *
  *        Set "disable" in default
  */
-/* #define ENABLE_CUSTOM_TOUCH_ENTITY */
+#define ENABLE_CUSTOM_TOUCH_ENTITY
 
 /**
  * @brief ENABLE_HELPER
