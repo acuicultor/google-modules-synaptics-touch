@@ -469,7 +469,6 @@ struct syna_tcm {
 	struct touch_offload_context offload;
 	u16 *heatmap_buff;
 	struct touch_offload_frame *reserved_frame;
-	struct work_struct offload_running_work;
 	bool reserved_frame_success;
 #endif
 
