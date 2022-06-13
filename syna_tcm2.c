@@ -237,6 +237,16 @@ static void syna_dev_restore_feature_setting(struct syna_tcm *tcm, unsigned int 
 			tcm->hw_if->compression_threhsold,
 			delay_ms_resp);
 
+	syna_tcm_set_dynamic_config(tcm->tcm_dev,
+			DC_GRIP_DELTA_THRESHOLD,
+			tcm->hw_if->grip_delta_threshold,
+			delay_ms_resp);
+
+	syna_tcm_set_dynamic_config(tcm->tcm_dev,
+			DC_GRIP_BORDER_THRESHOLD,
+			tcm->hw_if->grip_border_threshold,
+			delay_ms_resp);
+
 	if (tcm->hw_if->dynamic_report_rate) {
 		syna_tcm_set_dynamic_config(tcm->tcm_dev,
 				DC_REPORT_RATE_SWITCH,
@@ -1062,11 +1072,17 @@ static void syna_offload_set_running(struct syna_tcm *tcm, bool running)
 	}
 
 	/*
-	 * Disable firmware grip_suppression/palm_rejection when offload is running and
-	 * upper layer grip_suppression/palm_rejection is enabled.
+	 * Use the configurations set by touch service if it's running.
+	 * Enable the firmware grip and palm if the touch service isn't running.
 	 */
-	next_enable_fw_grip = (running && (tcm->offload.config.filter_grip == 1)) ? 0 : 1;
-	next_enable_fw_palm = (running && (tcm->offload.config.filter_palm == 1)) ? 0 : 1;
+	if (running) {
+		next_enable_fw_grip = tcm->offload.config.filter_grip;
+		next_enable_fw_palm = tcm->offload.config.filter_palm;
+	} else {
+		/* Enable the firmware grip and palm when touch */
+		next_enable_fw_grip = 1;
+		next_enable_fw_palm = 1;
+	}
 
 	if (next_enable_fw_grip != tcm->enable_fw_grip && tcm->enable_fw_grip < 2) {
 		tcm->enable_fw_grip = next_enable_fw_grip;
