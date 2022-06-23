@@ -610,6 +610,7 @@ static int syna_dev_parse_custom_gesture_cb(const unsigned char code,
 	return bits;
 }
 #endif
+
 /**
  * syna_tcm_free_input_events()
  *
@@ -857,6 +858,8 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 	syna_update_motion_filter(tcm, touch_count);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	} else {
+		tcm->offload_reserved_coords = true;
 	}
 #endif
 
@@ -1075,14 +1078,8 @@ static void syna_offload_set_running(struct syna_tcm *tcm, bool running)
 	 * Use the configurations set by touch service if it's running.
 	 * Enable the firmware grip and palm if the touch service isn't running.
 	 */
-	if (running) {
-		next_enable_fw_grip = tcm->offload.config.filter_grip;
-		next_enable_fw_palm = tcm->offload.config.filter_palm;
-	} else {
-		/* Enable the firmware grip and palm when touch */
-		next_enable_fw_grip = 1;
-		next_enable_fw_palm = 1;
-	}
+	next_enable_fw_grip = running ? !tcm->offload.config.filter_grip : 1;
+	next_enable_fw_palm = running ? !tcm->offload.config.filter_palm : 1;
 
 	if (next_enable_fw_grip != tcm->enable_fw_grip && tcm->enable_fw_grip < 2) {
 		tcm->enable_fw_grip = next_enable_fw_grip;
@@ -1345,6 +1342,32 @@ static void syna_populate_frame(struct syna_tcm *tcm, bool has_heatmap)
 	}
 	ATRACE_END();
 }
+
+static void reserve_then_queue_frame(struct syna_tcm *tcm, bool has_heatmap) {
+	int retval;
+
+	/* Skip if no reserved coordinates. */
+	if (!tcm->offload_reserved_coords && tcm->offload.offload_running)
+		return;
+
+	retval = touch_offload_reserve_frame(&tcm->offload, &tcm->reserved_frame);
+	if (retval != 0) {
+		LOGD("Could not reserve a frame: error=%d.\n", retval);
+
+		/* Stop offload when there are no buffers available. */
+		syna_offload_set_running(tcm, false);
+	} else {
+		syna_offload_set_running(tcm, true);
+
+		syna_populate_frame(tcm, has_heatmap);
+
+		retval = touch_offload_queue_frame(&tcm->offload, tcm->reserved_frame);
+		if (retval != 0)
+			LOGE("Failed to queue reserved frame: error=%d.\n", retval);
+
+		tcm->offload_reserved_coords = false;
+	}
+}
 #endif /* CONFIG_TOUCHSCREEN_OFFLOAD */
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
@@ -1468,13 +1491,13 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 	/* report input event only when receiving a touch report */
 	if (code == REPORT_TOUCH) {
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-		if (tcm->reserved_frame_success) {
-			LOGW("Last reserved frame was not queued.\n");
-			syna_populate_frame(tcm, false);
-			touch_offload_queue_frame(&tcm->offload, tcm->reserved_frame);
-			tcm->reserved_frame_success = false;
+		/* Reserve and queue the frame if last reserved coordinates is pending. */
+		if ((tcm->offload_reserved_coords) && (tcm->offload.offload_running)) {
+			LOGW("Last reserved coordinates was not queued.\n");
+			reserve_then_queue_frame(tcm, false);
 		}
 #endif
+
 		/* parse touch report once received */
 		retval = syna_tcm_parse_touch_report(tcm->tcm_dev,
 				tcm->event_data.buf,
@@ -1485,19 +1508,6 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 			goto exit;
 		}
 		tcm->coords_timestamp = tcm->isr_timestamp;
-
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-		retval = touch_offload_reserve_frame(&tcm->offload, &tcm->reserved_frame);
-		if (retval != 0) {
-			LOGD("Could not reserve a frame: error=%d.\n", retval);
-
-			/* Stop offload when there are no buffers available. */
-			syna_offload_set_running(tcm, false);
-		} else {
-			tcm->reserved_frame_success = true;
-			syna_offload_set_running(tcm, true);
-		}
-#endif
 
 		/* forward the touch event to system */
 		ATRACE_BEGIN("report_input_events");
@@ -1534,18 +1544,7 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 		LOGD("Heat map data received, size:%d\n",
 			tcm->event_data.data_length);
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-		if (tcm->offload.offload_running) {
-			syna_populate_frame(tcm, true);
-
-			retval = touch_offload_queue_frame(&tcm->offload,
-							   tcm->reserved_frame);
-			if (retval != 0) {
-				LOGE("Failed to queue reserved frame: error=%d.\n",
-				      retval);
-			} else {
-				tcm->reserved_frame_success = false;
-			}
-		}
+		reserve_then_queue_frame(tcm, true);
 #endif
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 		ATRACE_BEGIN("heatmap_read");
