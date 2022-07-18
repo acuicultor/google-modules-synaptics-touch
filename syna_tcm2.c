@@ -941,6 +941,8 @@ static int syna_dev_create_input_device(struct syna_tcm *tcm)
 
 	input_set_abs_params(input_dev,
 			ABS_MT_ORIENTATION, -4096, 4096, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_TOOL_TYPE, MT_TOOL_FINGER,
+			MT_TOOL_PALM, 0, 0);
 
 	tcm->input_dev_params.max_x = tcm_dev->max_x;
 	tcm->input_dev_params.max_y = tcm_dev->max_y;
