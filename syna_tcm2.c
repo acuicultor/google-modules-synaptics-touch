@@ -2916,7 +2916,7 @@ static int syna_dev_probe(struct platform_device *pdev)
 					     TOUCH_SCAN_TYPE_SELF;
 	tcm->offload.caps.continuous_reporting = true;
 	tcm->offload.caps.noise_reporting = false;
-	tcm->offload.caps.cancel_reporting = false;
+	tcm->offload.caps.cancel_reporting = true;
 	tcm->offload.caps.size_reporting = true;
 	tcm->offload.caps.rotation_reporting = true;
 	tcm->offload.caps.filter_grip = true;
