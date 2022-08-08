@@ -365,6 +365,46 @@ static void syna_set_report_rate_work(struct work_struct *work)
 		(tcm->touch_report_rate_config == CONFIG_HIGH_REPORT_RATE) ? 240 : 120);
 }
 
+static void syna_set_grip_mode_work(struct work_struct *work)
+{
+	struct syna_tcm *tcm = container_of(work, struct syna_tcm, set_grip_mode_work);
+
+	if (tcm->pwr_state != PWR_ON) {
+		LOGI("Touch is already off.");
+		return;
+	}
+
+	if (tcm->enable_fw_grip != tcm->next_enable_fw_grip) {
+		tcm->enable_fw_grip = tcm->next_enable_fw_grip;
+		LOGI("%s firmware grip suppression.\n",
+			(tcm->enable_fw_grip == 1) ? "Enable" : "Disable");
+		syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_ENABLE_GRIP_SUPPRESSION,
+				tcm->enable_fw_grip,
+				RESP_IN_ATTN);
+	}
+}
+
+static void syna_set_palm_mode_work(struct work_struct *work)
+{
+	struct syna_tcm *tcm = container_of(work, struct syna_tcm, set_palm_mode_work);
+
+	if (tcm->pwr_state != PWR_ON) {
+		LOGI("Touch is already off.");
+		return;
+	}
+
+	if (tcm->enable_fw_palm != tcm->next_enable_fw_palm) {
+		tcm->enable_fw_palm = tcm->next_enable_fw_palm;
+		LOGI("%s firmware palm rejection.\n",
+			(tcm->enable_fw_palm == 1) ? "Enable" : "Disable");
+		syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_ENABLE_PALM_REJECTION,
+				tcm->enable_fw_palm,
+				RESP_IN_ATTN);
+	}
+}
+
 #if defined(ENABLE_HELPER)
 /**
  * syna_dev_reset_detected_cb()
@@ -1070,38 +1110,21 @@ exit:
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 static void syna_offload_set_running(struct syna_tcm *tcm, bool running)
 {
-	int next_enable_fw_grip = 0;
-	int next_enable_fw_palm = 0;
-	if (tcm->offload.offload_running != running) {
+	if (tcm->offload.offload_running != running)
 		tcm->offload.offload_running = running;
-	}
 
 	/*
 	 * Use the configurations set by touch service if it's running.
 	 * Enable the firmware grip and palm if the touch service isn't running.
 	 */
-	next_enable_fw_grip = running ? !tcm->offload.config.filter_grip : 1;
-	next_enable_fw_palm = running ? !tcm->offload.config.filter_palm : 1;
+	tcm->next_enable_fw_grip = running ? !tcm->offload.config.filter_grip : 1;
+	tcm->next_enable_fw_palm = running ? !tcm->offload.config.filter_palm : 1;
 
-	if (next_enable_fw_grip != tcm->enable_fw_grip && tcm->enable_fw_grip < 2) {
-		tcm->enable_fw_grip = next_enable_fw_grip;
-		syna_tcm_set_dynamic_config(tcm->tcm_dev,
-				DC_ENABLE_GRIP_SUPPRESSION,
-				tcm->enable_fw_grip,
-				RESP_IN_POLLING);
-		LOGI("%s firmware grip suppression.\n",
-			(tcm->enable_fw_grip == 1) ? "Enable" : "Disable");
-	}
+	if (tcm->next_enable_fw_grip != tcm->enable_fw_grip && tcm->enable_fw_grip < 2)
+		queue_work(tcm->event_wq, &tcm->set_grip_mode_work);
 
-	if (next_enable_fw_palm != tcm->enable_fw_palm && tcm->enable_fw_palm < 2) {
-		tcm->enable_fw_palm = next_enable_fw_palm;
-		syna_tcm_set_dynamic_config(tcm->tcm_dev,
-				DC_ENABLE_PALM_REJECTION,
-				tcm->enable_fw_palm,
-				RESP_IN_POLLING);
-		LOGI("%s firmware palm rejection.\n",
-			(tcm->enable_fw_palm == 1) ? "Enable" : "Disable");
-	}
+	if (tcm->next_enable_fw_palm != tcm->enable_fw_palm && tcm->enable_fw_palm < 2)
+		queue_work(tcm->event_wq, &tcm->set_palm_mode_work);
 }
 
 static void syna_offload_report(void *handle,
@@ -2960,6 +2983,8 @@ static int syna_dev_probe(struct platform_device *pdev)
 	tcm->mf_mode = MF_DYNAMIC;
 
 	INIT_WORK(&tcm->motion_filter_work, syna_motion_filter_work);
+	INIT_WORK(&tcm->set_grip_mode_work, syna_set_grip_mode_work);
+	INIT_WORK(&tcm->set_palm_mode_work, syna_set_palm_mode_work);
 
 	tcm->touch_report_rate_config = CONFIG_HIGH_REPORT_RATE;
 	INIT_DELAYED_WORK(&tcm->set_report_rate_work, syna_set_report_rate_work);
@@ -3086,6 +3111,8 @@ static int syna_dev_remove(struct platform_device *pdev)
 	cancel_work_sync(&tcm->suspend_work);
 	cancel_work_sync(&tcm->resume_work);
 	cancel_work_sync(&tcm->motion_filter_work);
+	cancel_work_sync(&tcm->set_grip_mode_work);
+	cancel_work_sync(&tcm->set_palm_mode_work);
 	cancel_delayed_work_sync(&tcm->set_report_rate_work);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
