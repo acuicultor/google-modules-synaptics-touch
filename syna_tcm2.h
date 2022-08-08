@@ -494,6 +494,11 @@ struct syna_tcm {
 	/* Work for motion filter commands. */
 	struct work_struct motion_filter_work;
 
+	/* Work for setting firmware grip mode. */
+	struct work_struct set_grip_mode_work;
+	/* Work for setting firmware palm mode. */
+	struct work_struct set_palm_mode_work;
+
 	/* IOCTL-related variables */
 	pid_t proc_pid;
 	struct task_struct *proc_task;
@@ -522,6 +527,8 @@ struct syna_tcm {
 	bool high_sensitivity_mode;
 	u8 enable_fw_grip;
 	u8 enable_fw_palm;
+	u8 next_enable_fw_grip;
+	u8 next_enable_fw_palm;
 
 #if defined(USE_DRM_BRIDGE)
 	struct drm_bridge panel_bridge;
