@@ -413,7 +413,7 @@ static void syna_set_palm_mode_work(struct work_struct *work)
 /**
  * syna_dev_reset_detected_cb()
  *
- * Callback to assign a task to helper thread.
+ * Callback to assign a task to event workqueue.
  *
  * Please be noted that this function will be invoked in ISR so don't
  * issue another touchcomm command here.
@@ -428,11 +428,6 @@ static void syna_dev_reset_detected_cb(void *callback_data)
 {
 	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
 
-	if (!tcm->helper.workqueue) {
-		LOGW("No helper thread created\n");
-		return;
-	}
-
 #ifdef RESET_ON_RESUME
 	if (tcm->pwr_state != PWR_ON)
 		return;
@@ -441,7 +436,7 @@ static void syna_dev_reset_detected_cb(void *callback_data)
 	if (ATOMIC_GET(tcm->helper.task) == HELP_NONE) {
 		ATOMIC_SET(tcm->helper.task, HELP_RESET_DETECTED);
 
-		queue_work(tcm->helper.workqueue, &tcm->helper.work);
+		queue_work(tcm->event_wq, &tcm->helper.work);
 	}
 }
 /**
@@ -2252,13 +2247,10 @@ static int syna_dev_suspend(struct device *dev)
 				LOGE("Fail to complete hw reset, ret = %d, status = %d\n",
 				     retval, status);
 			}
-			return retval;
 		}
 		retval = syna_dev_enter_lowpwr_sensing(tcm);
-		if (retval < 0) {
+		if (retval < 0)
 			LOGE("Fail to enter suspended power mode after reset.\n");
-			return retval;
-		}
 	}
 	tcm->pwr_state = LOW_PWR;
 #else
@@ -3056,8 +3048,6 @@ static int syna_dev_probe(struct platform_device *pdev)
 
 #if defined(ENABLE_HELPER)
 	ATOMIC_SET(tcm->helper.task, HELP_NONE);
-	tcm->helper.workqueue =
-			create_singlethread_workqueue("synaptics_tcm_helper");
 	INIT_WORK(&tcm->helper.work, syna_dev_helper_work);
 	/* set up custom touch data parsing method */
 	syna_tcm_set_reset_occurrence_callback(tcm_dev,
@@ -3128,8 +3118,6 @@ static int syna_dev_remove(struct platform_device *pdev)
 	}
 #if defined(ENABLE_HELPER)
 	cancel_work_sync(&tcm->helper.work);
-	flush_workqueue(tcm->helper.workqueue);
-	destroy_workqueue(tcm->helper.workqueue);
 #endif
 
 	cancel_work_sync(&tcm->suspend_work);
