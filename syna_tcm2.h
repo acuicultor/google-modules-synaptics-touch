@@ -470,6 +470,7 @@ struct syna_tcm {
 	u16 *heatmap_buff;
 	struct touch_offload_frame *reserved_frame;
 	bool offload_reserved_coords;
+	u8 touch_offload_active_coords;
 #endif
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
