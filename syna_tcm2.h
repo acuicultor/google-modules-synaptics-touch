@@ -408,12 +408,29 @@ struct syna_health_check_fifo {
 	bool status_updated;
 };
 
+struct syna_touch_info_fifo {
+	u8 idx;
+	u16 x_pressed;	/* x coord on first down timing. */
+	u16 y_pressed;	/* y coord on first down timing. */
+	u16 x;
+	u16 y;
+	ktime_t ktime_pressed;
+	ktime_t ktime_released;
+};
+
 struct syna_health_check {
 	struct syna_health_check_fifo hc_fifo;
 	u64 int_cnt;
 	u64 coord_event_cnt;
 	u64 status_event_cnt;
 	unsigned long touch_idx_state;
+
+	struct syna_touch_info_fifo touch_info_fifo[MAX_NUM_OBJECTS];
+	u32 reset_cnt;
+	u32 wet_cnt;
+	u32 palm_cnt;
+	u32 pressed_cnt;
+	s64 longest_duration; /* ms unit */
 };
 
 /**
@@ -658,6 +675,7 @@ void syna_cdev_update_report_queue(struct syna_tcm *tcm,
 #endif
 int syna_set_bus_ref(struct syna_tcm *tcm, u32 ref, bool enable);
 void syna_hc_dump(struct syna_tcm *tcm);
+void syna_debug_dump(struct syna_tcm *tcm);
 
 #endif /* end of _SYNAPTICS_TCM2_DRIVER_H_ */
 

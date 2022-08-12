@@ -57,6 +57,10 @@
 #define SYNA_HC_KFIFO_LEN 4 /* Must be power of 2. */
 DEFINE_KFIFO(hc_fifo, struct syna_health_check_fifo, SYNA_HC_KFIFO_LEN);
 
+/* Init the kfifo for touch event information. */
+#define SYNA_DEBUG_KFIFO_LEN 4 /* must be power of 2. */
+DEFINE_KFIFO(debug_fifo, struct syna_touch_info_fifo, SYNA_DEBUG_KFIFO_LEN);
+
 /**
  * @section: USE_CUSTOM_TOUCH_REPORT_CONFIG
  *           Open if willing to set up the format of touch report.
@@ -167,6 +171,80 @@ inline void syna_hc_dump(struct syna_tcm *tcm)
 #define syna_hc_update_and_push(tcm, hc) do {} while (0)
 #define syna_hc_dump(tcm) do {} while (0)
 #endif /* #ifdef SEC_TS_HC_KFIFO_LEN */
+
+#ifdef SYNA_DEBUG_KFIFO_LEN
+inline void syna_kfifo_push_coord(struct syna_tcm *tcm, u8 slot)
+{
+	if (slot < MAX_NUM_OBJECTS) {
+		/*
+		 * Use kfifo as circular buffer by skipping one element
+		 * when fifo is full.
+		 */
+		if (kfifo_is_full(&debug_fifo))
+			kfifo_skip(&debug_fifo);
+		kfifo_in(&debug_fifo, &tcm->syna_hc.touch_info_fifo[slot], 1);
+	}
+}
+
+inline void syna_debug_dump(struct syna_tcm *tcm)
+{
+	int i;
+	u32 count;
+	s64 delta;
+	s64 sec_longest_duration;
+	u32 ms_longest_duration;
+	s64 sec_delta_down;
+	u32 ms_delta_down;
+	s64 sec_delta_duration;
+	u32 ms_delta_duration;
+	s32 px_delta_x, px_delta_y;
+	ktime_t current_time = ktime_get();
+	struct syna_touch_info_fifo last_touch_info_fifo[SYNA_DEBUG_KFIFO_LEN] = { 0 };
+
+	sec_longest_duration = div_u64_rem(tcm->syna_hc.longest_duration,
+				MSEC_PER_SEC, &ms_longest_duration);
+
+	count = min(tcm->syna_hc.pressed_cnt, (u32) ARRAY_SIZE(last_touch_info_fifo));
+	if (kfifo_out_peek(&debug_fifo, last_touch_info_fifo, count) != count) {
+		LOGE("Fail to peak touch event data.\n");
+		return;
+	}
+
+	for (i = 0 ; i < count; i++) {
+		sec_delta_down = -1;
+		ms_delta_down = 0;
+		/* calculate the delta of finger down from current time. */
+		delta = ktime_ms_delta(current_time, last_touch_info_fifo[i].ktime_pressed);
+		if (delta > 0)
+			sec_delta_down = div_u64_rem(delta, MSEC_PER_SEC, &ms_delta_down);
+
+		/* calculate the delta of finger duration between finger up and down. */
+		sec_delta_duration = -1;
+		ms_delta_duration = 0;
+		px_delta_x = 0;
+		px_delta_y = 0;
+		delta = ktime_ms_delta(last_touch_info_fifo[i].ktime_released,
+				last_touch_info_fifo[i].ktime_pressed);
+		if (delta > 0) {
+			sec_delta_duration = div_u64_rem(delta, MSEC_PER_SEC, &ms_delta_duration);
+			px_delta_x = last_touch_info_fifo[i].x - last_touch_info_fifo[i].x_pressed;
+			px_delta_y = last_touch_info_fifo[i].y - last_touch_info_fifo[i].y_pressed;
+		}
+		LOGI("dump: #%u: %lld.%u(%lld.%u) D(%d, %d).\n",
+			last_touch_info_fifo[i].idx,
+			sec_delta_down, ms_delta_down,
+			sec_delta_duration, ms_delta_duration,
+			px_delta_x, px_delta_y);
+	}
+	LOGI("reset %u, longest %lld.%u.\n",
+		tcm->syna_hc.reset_cnt, sec_longest_duration, ms_longest_duration);
+	LOGI("dump: cnt %u, wet %u, palm %u.\n",
+		tcm->syna_hc.pressed_cnt, tcm->syna_hc.wet_cnt, tcm->syna_hc.palm_cnt);
+}
+#else
+#define syna_kfifo_push_coord(tcm, slot) do {} while (0)
+#define syna_debug_dump(tcm) do {} while (0)
+#endif /* #ifdef SEC_TS_DEBUG_KFIFO_LEN */
 
 /**
  * syna_dev_enable_lowpwr_gesture()
@@ -499,6 +577,7 @@ static void syna_dev_reset_detected_cb(void *callback_data)
 
 		queue_work(tcm->event_wq, &tcm->helper.work);
 	}
+	tcm->syna_hc.reset_cnt++;
 }
 /**
  * syna_dev_helper_work()
@@ -728,6 +807,7 @@ static void syna_dev_free_input_events(struct syna_tcm *tcm)
 #ifdef TYPE_B_PROTOCOL
 	unsigned int idx;
 #endif
+	s64 ms_delta;
 
 	if (input_dev == NULL)
 		return;
@@ -768,6 +848,22 @@ static void syna_dev_free_input_events(struct syna_tcm *tcm)
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	}
 #endif
+
+	for (idx = 0; idx < MAX_NUM_OBJECTS; idx++) {
+		if (tcm->prev_obj_status[idx] != LIFT) {
+			tcm->syna_hc.touch_info_fifo[idx].ktime_released = ktime_get();
+
+			ms_delta = ktime_ms_delta(tcm->syna_hc.touch_info_fifo[idx].ktime_released,
+					tcm->syna_hc.touch_info_fifo[idx].ktime_pressed);
+			if (tcm->syna_hc.longest_duration < ms_delta)
+				tcm->syna_hc.longest_duration = ms_delta;
+
+			/* Special case to push into kfifo during release all fingers. */
+			syna_kfifo_push_coord(tcm, idx);
+			tcm->prev_obj_status[idx] = LIFT;
+		}
+	}
+
 	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
 
 }
@@ -807,6 +903,7 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 	unsigned int max_objects = tcm->tcm_dev->max_objects;
 	struct tcm_touch_data_blob *touch_data;
 	struct tcm_objects_data_blob *object_data;
+	s64 ms_delta;
 
 	if (input_dev == NULL)
 		return;
@@ -857,6 +954,16 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 			}
 #endif
+
+			tcm->syna_hc.touch_info_fifo[idx].ktime_released = tcm->isr_timestamp;
+			ms_delta = ktime_ms_delta(tcm->syna_hc.touch_info_fifo[idx].ktime_released,
+					tcm->syna_hc.touch_info_fifo[idx].ktime_pressed);
+			if (tcm->syna_hc.longest_duration < ms_delta)
+				tcm->syna_hc.longest_duration = ms_delta;
+
+			tcm->syna_hc.touch_info_fifo[idx].idx = idx;
+			syna_kfifo_push_coord(tcm, idx);
+
 			__clear_bit(idx, &tcm->syna_hc.touch_idx_state);
 			break;
 		case FINGER:
@@ -945,6 +1052,16 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 			}
 #endif
 			LOGD("Finger %d: x = %d, y = %d, z = %d\n", idx, x, y, z);
+
+			if (tcm->prev_obj_status[idx] == LIFT) {
+				tcm->syna_hc.touch_info_fifo[idx].x_pressed = x;
+				tcm->syna_hc.touch_info_fifo[idx].y_pressed = y;
+				tcm->syna_hc.touch_info_fifo[idx].ktime_pressed =
+					tcm->isr_timestamp;
+				tcm->syna_hc.pressed_cnt++;
+			}
+			tcm->syna_hc.touch_info_fifo[idx].x = x;
+			tcm->syna_hc.touch_info_fifo[idx].y = y;
 			__set_bit(idx, &tcm->syna_hc.touch_idx_state);
 			touch_count++;
 			break;
@@ -1669,6 +1786,12 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 		LOGI("Status: moisture:%d noise:%d freq-change:%d, grip:%d, palm:%d\n",
 			status->b0_moisture, status->b1_noise_state,
 			status->b2_freq_hopping, status->b3_grip, status->b4_palm);
+
+		if (status->b0_moisture)
+			tcm->syna_hc.wet_cnt++;
+
+		if (status->b4_palm)
+			tcm->syna_hc.palm_cnt++;
 
 		tcm->syna_hc.status_event_cnt++;
 		tcm->syna_hc.hc_fifo.status_updated = true;
@@ -2483,6 +2606,7 @@ static void syna_suspend_work(struct work_struct *work)
 
 	syna_dev_suspend(&tcm->pdev->dev);
 	syna_hc_dump(tcm);
+	syna_debug_dump(tcm);
 }
 
 static void syna_resume_work(struct work_struct *work)
@@ -2490,6 +2614,12 @@ static void syna_resume_work(struct work_struct *work)
 	struct syna_tcm *tcm = container_of(work, struct syna_tcm, resume_work);
 
 	syna_dev_resume(&tcm->pdev->dev);
+
+	tcm->syna_hc.reset_cnt = 0;
+	tcm->syna_hc.longest_duration = 0;
+	tcm->syna_hc.pressed_cnt = 0;
+	tcm->syna_hc.palm_cnt = 0;
+	tcm->syna_hc.wet_cnt = 0;
 }
 
 void syna_aggregate_bus_state(struct syna_tcm *tcm)
