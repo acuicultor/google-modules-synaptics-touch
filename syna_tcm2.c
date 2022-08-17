@@ -103,6 +103,10 @@ static unsigned char custom_touch_format[] = {
 	struct drm_panel *active_panel;
 #endif
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+static void reserve_then_queue_frame(struct syna_tcm *tcm, bool has_heatmap);
+#endif
+
 /**
  * syna_dev_enable_lowpwr_gesture()
  *
@@ -674,18 +678,28 @@ static void syna_dev_free_input_events(struct syna_tcm *tcm)
 
 	syna_pal_mutex_lock(&tcm->tp_event_mutex);
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	for (idx = 0; idx < MAX_NUM_OBJECTS; idx++) {
+		tcm->offload.coords[idx].status = COORD_STATUS_INACTIVE;
+		tcm->offload.coords[idx].major = 0;
+		tcm->offload.coords[idx].minor = 0;
+		tcm->offload.coords[idx].pressure = 0;
+	}
+
+	/* If the previous coord_frame that was pushed to touch_offload had
+	 * active coords (eg. there are fingers still on the screen), push an
+	 * empty coord_frame to touch_offload for clearing coords in twoshay.*/
+	if (tcm->touch_offload_active_coords && tcm->offload.offload_running) {
+		tcm->offload_reserved_coords = true;
+		LOGI("active coords %u", tcm->touch_offload_active_coords);
+		reserve_then_queue_frame(tcm, false);
+	} else {
+#endif
 #ifdef TYPE_B_PROTOCOL
 	for (idx = 0; idx < MAX_NUM_OBJECTS; idx++) {
 		input_mt_slot(input_dev, idx);
 		input_report_abs(input_dev, ABS_MT_PRESSURE, 0);
 		input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, 0);
-
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-		tcm->offload.coords[idx].status = COORD_STATUS_INACTIVE;
-		tcm->offload.coords[idx].major = 0;
-		tcm->offload.coords[idx].minor = 0;
-		tcm->offload.coords[idx].pressure = 0;
-#endif
 	}
 #endif
 	input_report_key(input_dev, BTN_TOUCH, 0);
@@ -695,6 +709,9 @@ static void syna_dev_free_input_events(struct syna_tcm *tcm)
 #endif
 	input_sync(input_dev);
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	}
+#endif
 	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
 
 }
@@ -1247,6 +1264,7 @@ static void syna_populate_coordinate_channel(struct syna_tcm *tcm,
 					     int channel)
 {
 	int j;
+	u8 active_coords = 0;
 
 	struct TouchOffloadDataCoord *dc =
 		(struct TouchOffloadDataCoord *)frame->channel_data[channel];
@@ -1261,7 +1279,11 @@ static void syna_populate_coordinate_channel(struct syna_tcm *tcm,
 		dc->coords[j].minor = tcm->offload.coords[j].minor;
 		dc->coords[j].pressure = tcm->offload.coords[j].pressure;
 		dc->coords[j].status = tcm->offload.coords[j].status;
+		if (dc->coords[j].status != COORD_STATUS_INACTIVE)
+			active_coords += 1;
 	}
+
+	tcm->touch_offload_active_coords = active_coords;
 }
 
 static void syna_populate_mutual_channel(struct syna_tcm *tcm,
@@ -2959,6 +2981,8 @@ static int syna_dev_probe(struct platform_device *pdev)
 			goto err_connect;
 		}
 	}
+
+	tcm->touch_offload_active_coords = 0;
 #endif
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
