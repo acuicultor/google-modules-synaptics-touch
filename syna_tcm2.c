@@ -2316,6 +2316,10 @@ static void syna_check_finger_status(struct syna_tcm *tcm)
 		}
 	}
 }
+#ifdef CONFIG_UCI
+extern void uci_screen_state(int state);
+#endif
+
 
 /**
  * syna_dev_resume()
@@ -2417,6 +2421,10 @@ static int syna_dev_resume(struct device *dev)
 	retval = 0;
 
 	LOGI("Device resumed (pwr_state:%d)\n", tcm->pwr_state);
+#ifdef CONFIG_UCI
+	pr_info("%s uci screen state call %d... \n",__func__,2);
+	uci_screen_state(2);
+#endif
 exit:
 	/* set irq back to active mode if not enabled yet */
 	irq_enabled = (!hw_if->bdata_attn.irq_enabled);
@@ -2510,6 +2518,10 @@ static int syna_dev_suspend(struct device *dev)
 #endif
 	LOGI("Device suspended (pwr_state:%d), int_cnt:%llu\n", tcm->pwr_state,
 	     tcm->syna_hc.int_cnt);
+#ifdef CONFIG_UCI
+	pr_info("%s uci screen state call %d... \n",__func__,0);
+	uci_screen_state(0);
+#endif
 
 	return 0;
 }
