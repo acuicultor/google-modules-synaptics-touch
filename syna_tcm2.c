@@ -3350,10 +3350,6 @@ static int syna_dev_remove(struct platform_device *pdev)
 	if (tcm->tbn_register_mask)
 		unregister_tbn(&tcm->tbn_register_mask);
 #endif
-	cpu_latency_qos_remove_request(&tcm->pm_qos_req);
-
-	if (tcm->raw_data_buffer)
-		kfree(tcm->raw_data_buffer);
 
 #if defined(USE_DRM_BRIDGE)
 	syna_unregister_panel_bridge(&tcm->panel_bridge);
@@ -3372,6 +3368,12 @@ static int syna_dev_remove(struct platform_device *pdev)
 	syna_cdev_remove_sysfs(tcm);
 #endif
 
+	/* check the connection statusm, and do disconnection */
+	if (tcm->dev_disconnect(tcm) < 0)
+		LOGE("Fail to do device disconnection\n");
+
+	cpu_latency_qos_remove_request(&tcm->pm_qos_req);
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	touch_offload_cleanup(&tcm->offload);
 #endif
@@ -3380,9 +3382,10 @@ static int syna_dev_remove(struct platform_device *pdev)
 	heatmap_remove(&tcm->v4l2);
 #endif
 
-	/* check the connection statusm, and do disconnection */
-	if (tcm->dev_disconnect(tcm) < 0)
-		LOGE("Fail to do device disconnection\n");
+	if (tcm->raw_data_buffer) {
+		kfree(tcm->raw_data_buffer);
+		tcm->raw_data_buffer = NULL;
+	}
 
 	syna_tcm_buf_release(&tcm->event_data);
 
