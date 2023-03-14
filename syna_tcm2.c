@@ -1693,6 +1693,7 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 {
 	int retval;
 	unsigned char code = 0;
+	bool force_complete_all = false;
 	struct syna_tcm *tcm = data;
 	struct custom_fw_status *status;
 	struct syna_hw_attn_data *attn = &tcm->hw_if->bdata_attn;
@@ -1706,8 +1707,13 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 	/* It is possible that interrupts were disabled while the handler is
 	 * executing, before acquiring the mutex. If so, simply return.
 	 */
-	if (syna_set_bus_ref(tcm, SYNA_BUS_REF_IRQ, true) < 0)
-		goto exit;
+	if (syna_set_bus_ref(tcm, SYNA_BUS_REF_IRQ, true) < 0) {
+		if (tcm->pwr_state != PWR_ON || completion_done(&tcm_dev->msg_data.cmd_completion))
+			goto exit;
+
+		force_complete_all = true;
+		LOGI("There is pending cmd_completion.\n");
+	}
 
 	if (unlikely(gpio_get_value(attn->irq_gpio) != attn->irq_on_state))
 		goto exit;
@@ -1835,6 +1841,8 @@ static irqreturn_t syna_dev_interrupt_thread(int irq, void *data)
 
 exit:
 	syna_set_bus_ref(tcm, SYNA_BUS_REF_IRQ, false);
+	if (force_complete_all)
+		complete_all(&tcm_dev->msg_data.cmd_completion);
 	cpu_latency_qos_update_request(&tcm->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 	ATRACE_END();
 	return IRQ_HANDLED;
@@ -2508,7 +2516,6 @@ static int syna_dev_suspend(struct device *dev)
 	if (tcm->tbn_register_mask)
 		tbn_release_bus(tcm->tbn_register_mask);
 #endif
-
 	LOGI("Device suspended (pwr_state:%d), int_cnt:%llu\n", tcm->pwr_state,
 	     tcm->syna_hc.int_cnt);
 #ifdef CONFIG_UCI
@@ -2699,10 +2706,12 @@ int syna_set_bus_ref(struct syna_tcm *tcm, u32 ref, bool enable)
 		 * IRQs can only keep the bus active. IRQs received while the
 		 * bus is transferred to AOC should be ignored.
 		 */
-		if (ref == SYNA_BUS_REF_IRQ && tcm->bus_refmask == 0)
-			result = -EAGAIN;
-		else
+		if (ref == SYNA_BUS_REF_IRQ && tcm->bus_refmask == 0) {
+			mutex_unlock(&tcm->bus_mutex);
+			return -EAGAIN;
+		} else {
 			tcm->bus_refmask |= ref;
+		}
 	} else
 		tcm->bus_refmask &= ~ref;
 	syna_aggregate_bus_state(tcm);
