@@ -1390,6 +1390,23 @@ static void syna_offload_report(void *handle,
 	ATRACE_END();
 }
 
+static int syna_heatmap_alloc_check(struct syna_tcm *tcm)
+{
+	if (tcm->heatmap_buff)
+	        return 0;
+
+	tcm->heatmap_buff = devm_kzalloc(&tcm->pdev->dev,
+			sizeof(u16) * tcm->tcm_dev->rows * tcm->tcm_dev->cols, GFP_KERNEL);
+	if (!tcm->heatmap_buff) {
+		LOGE("allocate heatmap_buff failed\n");
+		return -ENOMEM;
+	}
+	LOGI("Allocate heatmap memory, rows: %d, cols: %d\n", tcm->tcm_dev->rows,
+	     tcm->tcm_dev->cols);
+
+	return 0;
+}
+
 static int syna_dev_ptflib_decoder(struct syna_tcm *tcm, const u16 *in_array,
 				   const int in_array_size, u16 *out_array,
 				   const int out_array_max_size)
@@ -1475,6 +1492,9 @@ static void syna_populate_mutual_channel(struct syna_tcm *tcm,
 	mutual_strength->header.channel_size =
 		TOUCH_OFFLOAD_FRAME_SIZE_2D(mutual_strength->rx_size,
 					    mutual_strength->tx_size);
+
+	if (syna_heatmap_alloc_check(tcm) != 0)
+		return;
 
 	if (has_heatmap) {
 		/* for 'heat map' ($c3) report,
@@ -1606,6 +1626,9 @@ static bool v4l2_read_frame(struct v4l2_heatmap *v4l2)
 			memcpy(v4l2->frame, tcm->heatmap_buff,
 			       tcm->v4l2.width * tcm->v4l2.height * sizeof(u16));
 		} else {
+		    if (syna_heatmap_alloc_check(tcm) != 0)
+			return false;
+
 		    /* for 'heat map' ($c3) report,
 		     * report data has been stored at tcm->event_data.buf;
 		     * while, tcm->event_data.data_length is the size of data
@@ -3183,15 +3206,8 @@ static int syna_dev_probe(struct platform_device *pdev)
 	tcm->offload.report_cb = syna_offload_report;
 	touch_offload_init(&tcm->offload);
 
-	if (!tcm->heatmap_buff) {
-		tcm->heatmap_buff = kmalloc(
-				    sizeof(u16) * tcm->tcm_dev->rows * tcm->tcm_dev->cols,
-				    GFP_KERNEL);
-		if (!tcm->heatmap_buff) {
-			LOGE("allocate heatmap_buff failed\n");
-			goto err_connect;
-		}
-	}
+	if (syna_heatmap_alloc_check(tcm) != 0)
+		goto err_connect;
 
 	tcm->touch_offload_active_coords = 0;
 #endif
