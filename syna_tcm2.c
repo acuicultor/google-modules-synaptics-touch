@@ -2872,16 +2872,6 @@ static int syna_dev_disconnect(struct syna_tcm *tcm)
 		return 0;
 	}
 
-#ifdef STARTUP_REFLASH
-	cancel_delayed_work_sync(&tcm->reflash_work);
-	flush_workqueue(tcm->reflash_workqueue);
-	destroy_workqueue(tcm->reflash_workqueue);
-#endif
-
-	/* free interrupt line */
-	if (hw_if->bdata_attn.irq_id)
-		syna_dev_release_irq(tcm);
-
 	/* unregister input device */
 	syna_dev_release_input_device(tcm);
 
@@ -2982,26 +2972,6 @@ static int syna_dev_connect(struct syna_tcm *tcm)
 		break;
 	}
 
-	/* register the interrupt handler */
-	retval = syna_dev_request_irq(tcm);
-	if (retval < 0) {
-		LOGE("Fail to request the interrupt line\n");
-		goto err_request_irq;
-	}
-
-	/* for the reference,
-	 * create a delayed work to perform fw update during the startup time
-	 */
-#ifdef STARTUP_REFLASH
-	tcm->force_reflash = false;
-	tcm->reflash_count = 0;
-	tcm->reflash_workqueue =
-			create_singlethread_workqueue("syna_reflash");
-	INIT_DELAYED_WORK(&tcm->reflash_work, syna_dev_reflash_startup_work);
-	queue_delayed_work(tcm->reflash_workqueue, &tcm->reflash_work,
-			msecs_to_jiffies(STARTUP_REFLASH_DELAY_TIME_MS));
-#endif
-
 	tcm->pwr_state = PWR_ON;
 	tcm->is_connected = true;
 	tcm->bus_refmask = SYNA_BUS_REF_SCREEN_ON;
@@ -3014,10 +2984,6 @@ static int syna_dev_connect(struct syna_tcm *tcm)
 		(hw_if->ops_enable_irq) ? "yes" : "no");
 
 	return 0;
-
-err_request_irq:
-	/* unregister input device */
-	syna_dev_release_input_device(tcm);
 
 err_setup_input_dev:
 err_detect_dev:
@@ -3240,6 +3206,29 @@ static int syna_dev_probe(struct platform_device *pdev)
 	tcm->touch_report_rate_config = CONFIG_HIGH_REPORT_RATE;
 	INIT_DELAYED_WORK(&tcm->set_report_rate_work, syna_set_report_rate_work);
 
+	retval = syna_dev_request_irq(tcm);
+	if (retval < 0) {
+		LOGE("Fail to request the interrupt line\n");
+		goto err_request_irq;
+	}
+
+	tcm->enable_fw_grip = 0x00;
+	tcm->enable_fw_palm = 0x01;
+	syna_dev_restore_feature_setting(tcm, RESP_IN_POLLING);
+
+	/* for the reference,
+	 * create a delayed work to perform fw update during the startup time
+	 */
+#ifdef STARTUP_REFLASH
+	tcm->force_reflash = false;
+	tcm->reflash_count = 0;
+	tcm->reflash_workqueue =
+			create_singlethread_workqueue("syna_reflash");
+	INIT_DELAYED_WORK(&tcm->reflash_work, syna_dev_reflash_startup_work);
+	queue_delayed_work(tcm->reflash_workqueue, &tcm->reflash_work,
+			msecs_to_jiffies(STARTUP_REFLASH_DELAY_TIME_MS));
+#endif
+
 #ifdef HAS_SYSFS_INTERFACE
 	/* create the device file and register to char device classes */
 	retval = syna_cdev_create_sysfs(tcm, pdev);
@@ -3249,10 +3238,6 @@ static int syna_dev_probe(struct platform_device *pdev)
 		goto err_create_cdev;
 	}
 #endif
-
-	tcm->enable_fw_grip = 0x00;
-	tcm->enable_fw_palm = 0x01;
-	syna_dev_restore_feature_setting(tcm, RESP_IN_POLLING);
 
 #if defined(USE_DRM_BRIDGE)
 	retval = syna_register_panel_bridge(tcm);
@@ -3299,9 +3284,17 @@ static int syna_dev_probe(struct platform_device *pdev)
 
 #ifdef HAS_SYSFS_INTERFACE
 err_create_cdev:
-
 	syna_tcm_remove_device(tcm->tcm_dev);
+#ifdef STARTUP_REFLASH
+	cancel_delayed_work_sync(&tcm->reflash_work);
+	flush_workqueue(tcm->reflash_workqueue);
+	destroy_workqueue(tcm->reflash_workqueue);
 #endif
+	/* free interrupt line */
+	if (tcm->hw_if->bdata_attn.irq_id)
+		syna_dev_release_irq(tcm);
+#endif
+err_request_irq:
 #if defined(TCM_CONNECT_IN_PROBE)
 	tcm->dev_disconnect(tcm);
 
@@ -3383,6 +3376,16 @@ static int syna_dev_remove(struct platform_device *pdev)
 	/* remove the cdev and sysfs nodes */
 	syna_cdev_remove_sysfs(tcm);
 #endif
+
+#ifdef STARTUP_REFLASH
+	cancel_delayed_work_sync(&tcm->reflash_work);
+	flush_workqueue(tcm->reflash_workqueue);
+	destroy_workqueue(tcm->reflash_workqueue);
+#endif
+
+	/* free interrupt line */
+	if (tcm->hw_if->bdata_attn.irq_id)
+		syna_dev_release_irq(tcm);
 
 	/* check the connection statusm, and do disconnection */
 	if (tcm->dev_disconnect(tcm) < 0)
